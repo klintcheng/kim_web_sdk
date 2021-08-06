@@ -1,0 +1,29 @@
+{
+  "name": "imsdk",
+  "version": "1.0.0",
+  "description": "chatdemo im sdk",
+  "main": "index.ts",
+  "scripts": {
+    "run": "ts-node index.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/klintcheng/chatdemo.git"
+  },
+  "keywords": [
+    "im",
+    "sdk"
+  ],
+  "author": "klintcheng",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/klintcheng/chatdemo/issues"
+  },
+  "homepage": "https://github.com/klintcheng/chatdemo#readme",
+  "dependencies": {
+    "@types/websocket": "^1.0.2",
+    "buffer": "^6.0.3",
+    "ts-node": "^10.0.0",
+    "websocket": "^1.0.34"
+  }
+}
