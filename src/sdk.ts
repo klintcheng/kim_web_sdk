@@ -1,5 +1,9 @@
 import { w3cwebsocket, IMessageEvent, ICloseEvent } from 'websocket';
 import { Buffer } from 'buffer';
+import log from 'loglevel-es';
+import { Command, LogicPkt } from './packet';
+import { Status } from './lib/common.pb';
+import { decodeLoginResp, encodeLoginReq, LoginReq } from './lib/protocol.pb';
 
 export const Ping = new Uint8Array([0, 100, 0, 0, 0, 0])
 export const Pong = new Uint8Array([0, 101, 0, 0, 0, 0])
@@ -30,7 +34,7 @@ export enum Ack {
     Logined = "Logined",
 }
 
-export let doLogin = async (url: string): Promise<{ status: string, conn: w3cwebsocket }> => {
+export let doLogin = async (url: string, token: string): Promise<{ status: string, channelId?: string, conn: w3cwebsocket }> => {
     const LoginTimeout = 5 // 5 seconds
     return new Promise((resolve, reject) => {
         let conn = new w3cwebsocket(url)
@@ -42,11 +46,14 @@ export let doLogin = async (url: string): Promise<{ status: string, conn: w3cweb
         }, LoginTimeout * 1000);
 
         conn.onopen = () => {
-            console.info("websocket open - readyState:", conn.readyState)
-
             if (conn.readyState === w3cwebsocket.OPEN) {
-                clearTimeout(tr)
-                resolve({ status: Ack.Success, conn: conn });
+                log.info("connection established")
+                // send handshake request
+                let loginReq = LogicPkt.Build(Command.SignIn, "login", encodeLoginReq({
+                    token: token,
+                    tags: ["web"],
+                }))
+                conn.send(loginReq.bytes())
             }
         }
         conn.onerror = (error: Error) => {
@@ -54,6 +61,28 @@ export let doLogin = async (url: string): Promise<{ status: string, conn: w3cweb
             // console.debug(error)
             resolve({ status: Ack.Loginfailed, conn: conn });
         }
+
+        conn.onmessage = (evt) => {
+            if (typeof evt.data === 'string') {
+                log.debug("Received: '" + evt.data + "'");
+                return
+            }
+
+            // wating for login response
+            let buf = Buffer.from(evt.data)
+            let loginResp = LogicPkt.from(buf)
+            if (loginResp.header.status != Status.Success) {
+                log.error("Login failed: " + loginResp.header.status)
+
+                resolve({ status: Ack.Loginfailed, channelId: "", conn: conn });
+                return
+            }
+            let resp = decodeLoginResp(loginResp.payload)
+
+            clearTimeout(tr)
+            resolve({ status: Ack.Success, channelId: resp.channelId, conn: conn });
+        }
+
     })
 }
 

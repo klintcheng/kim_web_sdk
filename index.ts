@@ -1,4 +1,4 @@
-import { IMClient, sleep } from "./jdk";
+import { IMClient, sleep } from "./src/sdk";
 
 const main = async () => {
     let cli = new IMClient("ws://localhost:8000", "ccc");

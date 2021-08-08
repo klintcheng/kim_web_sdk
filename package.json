@@ -4,6 +4,7 @@
   "description": "chatdemo im sdk",
   "main": "index.ts",
   "scripts": {
+    "test": "jest",
     "run": "ts-node index.ts"
   },
   "repository": {
@@ -23,7 +24,13 @@
   "dependencies": {
     "@types/websocket": "^1.0.2",
     "buffer": "^6.0.3",
+    "loglevel-es": "^1.7.1",
+    "pbjs": "^0.0.14",
     "ts-node": "^10.0.0",
     "websocket": "^1.0.34"
+  },
+  "devDependencies": {
+    "@types/jest": "^26.0.24",
+    "jest": "^27.0.6"
   }
 }
