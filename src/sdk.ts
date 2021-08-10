@@ -27,14 +27,14 @@ export enum State {
     CLOSED,
 }
 
-export enum Ack {
+export enum LoginState {
     Success = "Success",
     Timeout = "Timeout",
     Loginfailed = "LoginFailed",
     Logined = "Logined",
 }
 
-export let doLogin = async (url: string, token: string): Promise<{ status: string, channelId?: string, conn: w3cwebsocket }> => {
+export let doLogin = async (url: string, token: string): Promise<{ status: LoginState, channelId?: string, conn: w3cwebsocket }> => {
     const LoginTimeout = 5 // 5 seconds
     return new Promise((resolve, reject) => {
         let conn = new w3cwebsocket(url)
@@ -42,7 +42,7 @@ export let doLogin = async (url: string, token: string): Promise<{ status: strin
 
         // 设置一个登陆超时器
         let tr = setTimeout(() => {
-            resolve({ status: Ack.Timeout, conn: conn });
+            resolve({ status: LoginState.Timeout, conn: conn });
         }, LoginTimeout * 1000);
 
         conn.onopen = () => {
@@ -59,7 +59,7 @@ export let doLogin = async (url: string, token: string): Promise<{ status: strin
         conn.onerror = (error: Error) => {
             clearTimeout(tr)
             // console.debug(error)
-            resolve({ status: Ack.Loginfailed, conn: conn });
+            resolve({ status: LoginState.Loginfailed, conn: conn });
         }
 
         conn.onmessage = (evt) => {
@@ -73,14 +73,13 @@ export let doLogin = async (url: string, token: string): Promise<{ status: strin
             let loginResp = LogicPkt.from(buf)
             if (loginResp.header.status != Status.Success) {
                 log.error("Login failed: " + loginResp.header.status)
-
-                resolve({ status: Ack.Loginfailed, channelId: "", conn: conn });
+                resolve({ status: LoginState.Loginfailed, channelId: "", conn: conn });
                 return
             }
             let resp = decodeLoginResp(loginResp.payload)
 
             clearTimeout(tr)
-            resolve({ status: Ack.Success, channelId: resp.channelId, conn: conn });
+            resolve({ status: LoginState.Success, channelId: resp.channelId, conn: conn });
         }
 
     })
@@ -88,25 +87,27 @@ export let doLogin = async (url: string, token: string): Promise<{ status: strin
 
 export class IMClient {
     wsurl: string
+    token: string
     state = State.INIT
     private conn: w3cwebsocket | null
     private lastRead: number
-    constructor(url: string, user: string) {
-        this.wsurl = `${url}?user=${user}`
+    constructor(url: string, token: string) {
+        this.wsurl = url
+        this.token = token
         this.conn = null
         this.lastRead = Date.now()
     }
     // 1、登陆
     async login(): Promise<{ status: string }> {
         if (this.state == State.CONNECTED) {
-            return { status: Ack.Logined }
+            return { status: LoginState.Logined }
         }
         this.state = State.CONNECTING
 
-        let { status, conn } = await doLogin(this.wsurl)
+        let { status,channelId, conn } = await doLogin(this.wsurl,this.token)
         console.info("login - ", status)
 
-        if (status !== Ack.Success) {
+        if (status !== LoginState.Success) {
             this.state = State.INIT
             return { status }
         }
