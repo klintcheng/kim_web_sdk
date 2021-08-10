@@ -1,5 +1,5 @@
 
-import { decodeHeader, encodeHeader, Flag, Status } from './lib/common.pb';
+import {Header, Flag, Status } from './proto/common';
 import log from 'loglevel-es';
 
 export class Seq {
@@ -46,30 +46,33 @@ export enum MessageType {
 // LittleEndian
 export const Ping = new Uint8Array([0xc3, 0x15, 0xa7, 0x65, 1, 0, 0, 0])
 
-export class Header {
+// export const PktHeader = {
+//     command?: string;
+//     channelId?: string;
+//     sequence?: number;
+//     flag?: Flag;
+//     status?: Status;
+//     dest?: string;
+// }
+
+export class LogicPkt {
     command?: string;
     channelId?: string;
     sequence?: number;
-    flag?: Flag;
-    status?: Status;
+    flag?: number;
+    status?: number;
     dest?: string;
-}
-
-export class LogicPkt {
-    header: Header
     payload: Uint8Array
-    constructor(header: Header) {
-        this.header = header;
+    constructor() {
         this.payload = new Uint8Array();
     }
     static Build(command: string, dest: string, payload?: Uint8Array): LogicPkt {
-        // build header
-        let header = new Header()
-        header.command = command
-        header.sequence = Seq.Next()
-        header.dest = dest
         // build LogicPkt
-        let message = new LogicPkt(header)
+        let message = new LogicPkt()
+        message.command = command
+        message.sequence = Seq.Next()
+        message.dest = dest
+
         if (payload != null && payload.length > 0) {
             message.payload = payload
         }
@@ -79,17 +82,19 @@ export class LogicPkt {
         let offset = 0
         let hlen = buf.readInt32LE(offset)
         offset += 4
-        let header = decodeHeader(buf.subarray(offset, offset + hlen))
+        let header = Header.decode(buf.subarray(offset, offset + hlen))
         offset += hlen
         // build message with header
-        let message = new LogicPkt(header)
+        let message = new LogicPkt()
+        Object.assign(message, header)
+
         let plen = buf.readInt32LE(offset)
         offset += 4
         message.payload = buf.subarray(offset, offset + plen)
         return message
     }
     bytes(): Buffer {
-        let headerArray = encodeHeader(this.header)
+        let headerArray = Header.encode(Header.fromJSON(this)).finish()
         let hlen = headerArray.length
         let plen = this.payload.length
         //| 4bytes magic | 4bytes Header Length| header | 4bytes Payload Length| payload |

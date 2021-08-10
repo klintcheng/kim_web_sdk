@@ -1,9 +1,9 @@
 import { w3cwebsocket, IMessageEvent, ICloseEvent } from 'websocket';
 import { Buffer } from 'buffer';
 import log from 'loglevel-es';
-import { Command, LogicPkt } from './packet';
-import { Status } from './lib/common.pb';
-import { decodeLoginResp, encodeLoginReq, LoginReq } from './lib/protocol.pb';
+import { Command, LogicPkt, MagicLogicPkt } from './packet';
+import { Status } from './proto/common';
+import { LoginReq, LoginResp } from './proto/protocol';
 
 export const Ping = new Uint8Array([0, 100, 0, 0, 0, 0])
 export const Pong = new Uint8Array([0, 101, 0, 0, 0, 0])
@@ -35,63 +35,86 @@ export enum LoginState {
     Logined = "Logined",
 }
 
-export let doLogin = async (url: string, token: string): Promise<{ status: LoginState, channelId?: string, conn: w3cwebsocket }> => {
+export let doLogin = async (url: string, req: {
+    token: string;
+    isp?: string;
+    zone?: string;
+    tags?: string[];
+}): Promise<{ status: LoginState, channelId?: string, conn: w3cwebsocket }> => {
     return new Promise((resolve, _) => {
         let conn = new w3cwebsocket(url)
         conn.binaryType = "arraybuffer"
 
         // 设置一个登陆超时器
         let tr = setTimeout(() => {
+            clearTimeout(tr)
             resolve({ status: LoginState.Timeout, conn: conn });
         }, LoginTimeout * 1000);
 
         conn.onopen = () => {
-            if (conn.readyState === w3cwebsocket.OPEN) {
+            if (conn.readyState == w3cwebsocket.OPEN) {
                 log.info("connection established, send handshake request....")
                 // send handshake request
-                let loginReq = LogicPkt.Build(Command.SignIn, "login", encodeLoginReq({
-                    token: token,
-                    tags: ["web"],
-                }))
-                conn.send(loginReq.bytes())
+                let pbreq = LoginReq.encode(LoginReq.fromJSON(req)).finish()
+                let loginpkt = LogicPkt.Build(Command.SignIn, "", pbreq)
+                let buf = loginpkt.bytes()
+                log.info(buf.toJSON())
+                conn.send(buf)
             }
         }
         conn.onerror = (error: Error) => {
             clearTimeout(tr)
-            // console.debug(error)
+            log.warn(error)
             resolve({ status: LoginState.Loginfailed, conn: conn });
         }
 
         conn.onmessage = (evt) => {
             if (typeof evt.data === 'string') {
-                log.debug("Received: '" + evt.data + "'");
+                log.warn("Received: '" + evt.data + "'");
                 return
             }
             clearTimeout(tr)
-            // wating for login response
-            let buf = Buffer.from(evt.data)
-            let loginResp = LogicPkt.from(buf)
-            if (loginResp.header.status != Status.Success) {
-                log.error("Login failed: " + loginResp.header.status)
-                resolve({ status: LoginState.Loginfailed, channelId: "", conn: conn });
+            let magic = evt.data.slice(0, 4)
+            if (magic !== MagicLogicPkt) {
+                log.warn(`error magic code:${magic}`)
+                resolve({ status: LoginState.Loginfailed, conn: conn });
                 return
             }
-            let resp = decodeLoginResp(loginResp.payload)
+            // wating for login response
+            let buf = Buffer.from(evt.data.slice(4))
+            let loginResp = LogicPkt.from(buf)
+            if (loginResp.status != Status.Success) {
+                log.error("Login failed: " + loginResp.status)
+                resolve({ status: LoginState.Loginfailed, conn: conn });
+                return
+            }
+            let resp = LoginResp.decode(loginResp.payload)
             resolve({ status: LoginState.Success, channelId: resp.channelId, conn: conn });
         }
 
     })
 }
 
-export class IMClient {
+export class KIMClient {
     wsurl: string
-    token: string
+    req: {
+        token: string;
+        isp?: string;
+        zone?: string;
+        tags?: string[];
+    }
     state = State.INIT
+    channelId?: string
     private conn: w3cwebsocket | null
     private lastRead: number
-    constructor(url: string, token: string) {
+    constructor(url: string, req: {
+        token: string;
+        isp?: string;
+        zone?: string;
+        tags?: string[];
+    }) {
         this.wsurl = url
-        this.token = token
+        this.req = req
         this.conn = null
         this.lastRead = Date.now()
     }
@@ -102,7 +125,7 @@ export class IMClient {
         }
         this.state = State.CONNECTING
 
-        let { status,channelId, conn } = await doLogin(this.wsurl,this.token)
+        let { status, channelId, conn } = await doLogin(this.wsurl, this.req)
         console.info("login - ", status)
 
         if (status !== LoginState.Success) {
@@ -139,6 +162,7 @@ export class IMClient {
         }
         this.conn = conn
         this.state = State.CONNECTED
+        this.channelId = channelId
 
         this.heartbeatLoop()
         this.readDeadlineLoop()

@@ -4,14 +4,14 @@ kim web sdk
 
 ## 编译proto文件
 
-1. 安装pbjs
+1. 安装ts-proto
 
-> npm install -g pbjs
+> yarn add --dev ts-proto
 
 2. build proto
 
-> pbjs proto/common.proto --ts src/lib/common.pb.ts
-> pbjs proto/protocol.proto --ts src/lib/protocol.pb.ts
+> ./proto/protoc --plugin=./node_modules/.bin/protoc-gen-ts_proto --ts_proto_opt=forceLong=long --ts_proto_opt=esModuleInterop=true --ts_proto_opt=env=browser --ts_proto_out=src/ ./proto/common.proto
+> ./proto/protoc --plugin=./node_modules/.bin/protoc-gen-ts_proto --ts_proto_opt=forceLong=long --ts_proto_opt=esModuleInterop=true --ts_proto_opt=env=browser --ts_proto_out=src/ ./proto/protocol.proto
 
 ## 安装测试jest
 
@@ -19,4 +19,3 @@ kim web sdk
 > yarn add --dev jest typescript
 > yarn add --dev ts-jest @types/jest
 > yarn ts-jest config:init
-
