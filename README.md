@@ -16,5 +16,7 @@ kim web sdk
 ## 安装测试jest
 
 > npm i -g yarn
-> yarn add --dev jest
-> yarn add --dev @types/jest
+> yarn add --dev jest typescript
+> yarn add --dev ts-jest @types/jest
+> yarn ts-jest config:init
+

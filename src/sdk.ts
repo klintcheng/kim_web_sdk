@@ -9,6 +9,7 @@ export const Ping = new Uint8Array([0, 100, 0, 0, 0, 0])
 export const Pong = new Uint8Array([0, 101, 0, 0, 0, 0])
 
 const heartbeatInterval = 10 // seconds
+const LoginTimeout = 10 // 10 seconds
 
 export let sleep = async (second: number): Promise<void> => {
     return new Promise((resolve, _) => {
@@ -35,8 +36,7 @@ export enum LoginState {
 }
 
 export let doLogin = async (url: string, token: string): Promise<{ status: LoginState, channelId?: string, conn: w3cwebsocket }> => {
-    const LoginTimeout = 5 // 5 seconds
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve, _) => {
         let conn = new w3cwebsocket(url)
         conn.binaryType = "arraybuffer"
 
@@ -47,7 +47,7 @@ export let doLogin = async (url: string, token: string): Promise<{ status: Login
 
         conn.onopen = () => {
             if (conn.readyState === w3cwebsocket.OPEN) {
-                log.info("connection established")
+                log.info("connection established, send handshake request....")
                 // send handshake request
                 let loginReq = LogicPkt.Build(Command.SignIn, "login", encodeLoginReq({
                     token: token,
@@ -67,7 +67,7 @@ export let doLogin = async (url: string, token: string): Promise<{ status: Login
                 log.debug("Received: '" + evt.data + "'");
                 return
             }
-
+            clearTimeout(tr)
             // wating for login response
             let buf = Buffer.from(evt.data)
             let loginResp = LogicPkt.from(buf)
@@ -77,8 +77,6 @@ export let doLogin = async (url: string, token: string): Promise<{ status: Login
                 return
             }
             let resp = decodeLoginResp(loginResp.payload)
-
-            clearTimeout(tr)
             resolve({ status: LoginState.Success, channelId: resp.channelId, conn: conn });
         }
 

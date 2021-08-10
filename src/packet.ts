@@ -1,5 +1,6 @@
 
 import { decodeHeader, encodeHeader, Flag, Status } from './lib/common.pb';
+import log from 'loglevel-es';
 
 export class Seq {
     static num: number = 0
@@ -32,8 +33,8 @@ export enum Command {
     GroupDetail = "chat.group.detail",
 }
 
-const MagicLogicPkt = new Uint8Array([0xc3, 0x11, 0xa3, 0x65])
-const MagicBasicPkt = new Uint8Array([0xc3, 0x15, 0xa7, 0x65])
+export const MagicLogicPkt = new Uint8Array([0xc3, 0x11, 0xa3, 0x65])
+export const MagicBasicPkt = new Uint8Array([0xc3, 0x15, 0xa7, 0x65])
 
 export enum MessageType {
     Text = 1, // 文本
@@ -69,19 +70,21 @@ export class LogicPkt {
         header.dest = dest
         // build LogicPkt
         let message = new LogicPkt(header)
-        if (payload != null) {
+        if (payload != null && payload.length > 0) {
             message.payload = payload
         }
         return message
     }
     static from(buf: Buffer): LogicPkt {
-        let message = new LogicPkt(new Header())
         let offset = 0
         let hlen = buf.readInt32LE(offset)
+        offset += 4
         let header = decodeHeader(buf.subarray(offset, offset + hlen))
         offset += hlen
-        Object.assign(message, header)
+        // build message with header
+        let message = new LogicPkt(header)
         let plen = buf.readInt32LE(offset)
+        offset += 4
         message.payload = buf.subarray(offset, offset + plen)
         return message
     }
@@ -89,7 +92,7 @@ export class LogicPkt {
         let headerArray = encodeHeader(this.header)
         let hlen = headerArray.length
         let plen = this.payload.length
-        // 4bytes magic | 4bytes Header Length| header | 4bytes Payload Length| payload |
+        //| 4bytes magic | 4bytes Header Length| header | 4bytes Payload Length| payload |
         let buf = Buffer.alloc(4 + 4 + hlen + 4 + plen)
         let offset = 0
         Buffer.from(MagicLogicPkt).copy(buf, offset, 0)
