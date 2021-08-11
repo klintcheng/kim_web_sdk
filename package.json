@@ -4,7 +4,7 @@
   "description": "chatdemo im sdk",
   "main": "index.ts",
   "scripts": {
-    "test": "jest --detectOpenHandles",
+    "test": "jest --detectOpenHandles --env=node --force-exit --noStackTrace",
     "run": "ts-node index.ts"
   },
   "repository": {

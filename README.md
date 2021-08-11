@@ -10,8 +10,8 @@ kim web sdk
 
 2. build proto
 
-> ./proto/protoc --plugin=./node_modules/.bin/protoc-gen-ts_proto --ts_proto_opt=forceLong=long --ts_proto_opt=esModuleInterop=true --ts_proto_out=src/ ./proto/common.proto
-> ./proto/protoc --plugin=./node_modules/.bin/protoc-gen-ts_proto --ts_proto_opt=forceLong=long --ts_proto_opt=esModuleInterop=true --ts_proto_out=src/ ./proto/protocol.proto
+> ./bin/protoc --plugin=./node_modules/.bin/protoc-gen-ts_proto --ts_proto_opt=forceLong=long --ts_proto_opt=esModuleInterop=true --ts_proto_out=src/ ./proto/common.proto
+> ./bin/protoc --plugin=./node_modules/.bin/protoc-gen-ts_proto --ts_proto_opt=forceLong=long --ts_proto_opt=esModuleInterop=true --ts_proto_out=src/ ./proto/protocol.proto
 
 ## 安装测试jest
 

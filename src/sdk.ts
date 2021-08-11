@@ -1,15 +1,13 @@
 import { w3cwebsocket, IMessageEvent, ICloseEvent } from 'websocket';
 import { Buffer } from 'buffer';
 import log from 'loglevel-es';
-import { Command, LogicPkt, MagicLogicPkt } from './packet';
+import { Command, LogicPkt, MagicBasicPktInt, Ping } from './packet';
 import { Status } from './proto/common';
-import { LoginReq, LoginResp } from './proto/protocol';
+import { LoginReq, LoginResp, MessageReq, MessageResp } from './proto/protocol';
 
-export const Ping = new Uint8Array([0, 100, 0, 0, 0, 0])
-export const Pong = new Uint8Array([0, 101, 0, 0, 0, 0])
-
-const heartbeatInterval = 10 // seconds
-const LoginTimeout = 10 // 10 seconds
+const heartbeatInterval = 10 * 1000 // seconds
+const loginTimeout = 10 * 1000 // 10 seconds
+const sendTimeout = 5 * 1000 // 10 seconds
 
 export let sleep = async (second: number): Promise<void> => {
     return new Promise((resolve, _) => {
@@ -28,19 +26,19 @@ export enum State {
     CLOSED,
 }
 
-export enum LoginState {
-    Success = "Success",
-    Timeout = "Timeout",
-    Loginfailed = "LoginFailed",
-    Logined = "Logined",
+// 客户端自定义的状态码范围 [10, 100)
+export enum KIMStatus {
+    RequestTimeout = 10,
+    SendFailed = 11,
 }
 
-export let doLogin = async (url: string, req: {
-    token: string;
-    isp?: string;
-    zone?: string;
-    tags?: string[];
-}): Promise<{ status: LoginState, channelId?: string, conn: w3cwebsocket }> => {
+export enum KIMEvent {
+    Reconnecting = "Reconnecting", //重连中
+    Reconnected = "Reconnected", //重连成功
+    Closed = "Closed"
+}
+
+export let doLogin = async (url: string, req: LoginBody): Promise<{ success: boolean, err?: Error, channelId?: string, conn: w3cwebsocket }> => {
     return new Promise((resolve, _) => {
         let conn = new w3cwebsocket(url)
         conn.binaryType = "arraybuffer"
@@ -48,24 +46,24 @@ export let doLogin = async (url: string, req: {
         // 设置一个登陆超时器
         let tr = setTimeout(() => {
             clearTimeout(tr)
-            resolve({ status: LoginState.Timeout, conn: conn });
-        }, LoginTimeout * 1000);
+            resolve({ success: false, err: new Error("timeout"), conn: conn });
+        }, loginTimeout);
 
         conn.onopen = () => {
             if (conn.readyState == w3cwebsocket.OPEN) {
-                log.info("connection established, send handshake request....")
+                log.info(`connection established, send ${req}`)
                 // send handshake request
                 let pbreq = LoginReq.encode(LoginReq.fromJSON(req)).finish()
                 let loginpkt = LogicPkt.Build(Command.SignIn, "", pbreq)
                 let buf = loginpkt.bytes()
-                log.info(`dologin send [${buf.join(",")}]`)
+                log.debug(`dologin send [${buf.join(",")}]`)
                 conn.send(buf)
             }
         }
         conn.onerror = (error: Error) => {
             clearTimeout(tr)
             log.warn(error)
-            resolve({ status: LoginState.Loginfailed, conn: conn });
+            resolve({ success: false, err: error, conn: conn });
         }
 
         conn.onmessage = (evt) => {
@@ -79,28 +77,62 @@ export let doLogin = async (url: string, req: {
             let loginResp = LogicPkt.from(buf)
             if (loginResp.status != Status.Success) {
                 log.error("Login failed: " + loginResp.status)
-                resolve({ status: LoginState.Loginfailed, conn: conn });
+                resolve({ success: false, err: new Error(`response status is ${loginResp.status}`), conn: conn });
                 return
             }
             let resp = LoginResp.decode(loginResp.payload)
-            resolve({ status: LoginState.Success, channelId: resp.channelId, conn: conn });
+            resolve({ success: true, channelId: resp.channelId, conn: conn });
         }
 
     })
 }
 
+
+export class LoginBody {
+    token: string;
+    isp?: string;
+    zone?: string;
+    tags?: string[];
+    constructor(token: string, isp?: string, zone?: string, tags?: string[]) {
+        this.token = token;
+        this.isp = isp;
+        this.zone = zone;
+        this.tags = tags;
+    }
+}
+
+export class Response {
+    status: number;
+    dest?: string;
+    payload: Uint8Array
+    constructor(status: number, dest?: string, payload: Uint8Array = new Uint8Array()) {
+        this.status = status;
+        this.dest = dest;
+        this.payload = payload;
+    }
+}
+
+export class Request {
+    sendTime: number
+    data: LogicPkt
+    callback: (response: LogicPkt) => void
+    constructor(data: LogicPkt, callback: (response: LogicPkt) => void) {
+        this.sendTime = Date.now()
+        this.data = data
+        this.callback = callback
+    }
+}
+
 export class KIMClient {
     wsurl: string
-    req: {
-        token: string;
-        isp?: string;
-        zone?: string;
-        tags?: string[];
-    }
+    private req: LoginBody
     state = State.INIT
     channelId?: string
-    private conn: w3cwebsocket | null
+    private conn?: w3cwebsocket
     private lastRead: number
+    private listeners = new Map<string, (e: KIMEvent) => void>()
+    // 全双工请求队列
+    private sendq = new Map<number, Request>()
     constructor(url: string, req: {
         token: string,
         isp?: string,
@@ -109,45 +141,50 @@ export class KIMClient {
     }) {
         this.wsurl = url
         this.req = req
-        this.conn = null
         this.lastRead = Date.now()
     }
-    // 1、登陆
-    async login(): Promise<{ status: string }> {
+    register(events: string[], callback: (e: KIMEvent) => void) {
+        // 注册事件到Client中。
+        events.forEach((event) => {
+            this.listeners.set(event, callback)
+        })
+    }
+    // 1、登录
+    async login(): Promise<{ success: boolean, err?: Error }> {
         if (this.state == State.CONNECTED) {
-            return { status: LoginState.Logined }
+            return { success: false, err: new Error("client has already been connected") }
         }
         this.state = State.CONNECTING
-
-        let { status, channelId, conn } = await doLogin(this.wsurl, this.req)
-        console.info("login - ", status)
-
-        if (status !== LoginState.Success) {
+        let { success, err, channelId, conn } = await doLogin(this.wsurl, this.req)
+        if (!success) {
             this.state = State.INIT
-            return { status }
+            return { success, err }
         }
+        log.info("login - ", success)
         // overwrite onmessage
         conn.onmessage = (evt: IMessageEvent) => {
             try {
+                // 重置lastRead
                 this.lastRead = Date.now()
 
                 let buf = Buffer.from(<ArrayBuffer>evt.data)
-                let command = buf.readInt16BE(0)
-                let len = buf.readInt32BE(2)
-                console.info(`<<<< received a message ; command:${command} len: ${len}`)
-                if (command == 101) {
-                    console.info("<<<< received a pong...")
+                let magic = buf.readInt32BE()
+                if (magic == MagicBasicPktInt) {//目前只有心跳包pong
+                    log.debug(`recv a basic packet - ${buf.join(",")}`)
+                    return
                 }
+                let pkt = LogicPkt.from(buf)
+                this.packetHandler(pkt)
             } catch (error) {
-                console.error(evt.data, error)
+                log.error(evt.data, error)
             }
         }
         conn.onerror = (error) => {
-            console.info("websocket error: ", error)
+            log.info("websocket error: ", error)
             this.errorHandler(error)
         }
         conn.onclose = (e: ICloseEvent) => {
-            console.debug("event[onclose] fired")
+            log.debug("event[onclose] fired")
             if (this.state == State.CLOSEING) {
                 this.onclose("logout")
                 return
@@ -155,13 +192,13 @@ export class KIMClient {
             this.errorHandler(new Error(e.reason))
         }
         this.conn = conn
-        this.state = State.CONNECTED
         this.channelId = channelId
 
         this.heartbeatLoop()
         this.readDeadlineLoop()
 
-        return { status }
+        this.state = State.CONNECTED
+        return { success, err }
     }
     logout() {
         if (this.state === State.CLOSEING) {
@@ -171,35 +208,97 @@ export class KIMClient {
         if (!this.conn) {
             return
         }
-        console.info("Connection closing...")
+        log.info("Connection closing...")
         this.conn.close()
+    }
+    /**
+    * 给用户dest发送一条消息
+    * @param dest 用户账号
+    * @param req 请求的消息内容
+    * @returns status KIMStatus|Status
+    */
+    async talkToUser(dest: string, req: MessageReq): Promise<{ status: number, resp?: MessageResp }> {
+        return this.talk(Command.ChatUserTalk, dest, req)
+    }
+    /**
+     * 给群dest发送一条消息
+     * @param dest 群ID
+     * @param req 请求的消息内容
+     * @returns status KIMStatus|Status
+     */
+    async talkToGroup(dest: string, req: MessageReq): Promise<{ status: number, resp?: MessageResp }> {
+        return this.talk(Command.ChatGroupTalk, dest, req)
+    }
+    private async talk(command: string, dest: string, req: MessageReq): Promise<{ status: number, resp?: MessageResp }> {
+        let pbreq = MessageReq.encode(req).finish()
+        let pkt = LogicPkt.Build(command, dest, pbreq)
+        let resp = await this.request(pkt)
+        if (resp.status != Status.Success) {
+            return { status: resp.status }
+        }
+        return { status: resp.status, resp: MessageResp.decode(resp.payload) }
+    }
+    async request(data: LogicPkt): Promise<Response> {
+        return new Promise((resolve, _) => {
+            let seq = data.sequence
+
+            let tr = setTimeout(() => {
+                // remove from sendq
+                this.sendq.delete(seq)
+                resolve(new Response(KIMStatus.RequestTimeout))
+            }, sendTimeout)
+
+            // asynchronous wait ack from server
+            let callback = (pkt: LogicPkt) => {
+                clearTimeout(tr)
+                // remove from sendq
+                this.sendq.delete(seq)
+                resolve(new Response(pkt.status, pkt.dest, pkt.payload))
+            }
+            log.debug("chat send:", seq, data.payload)
+
+            this.sendq.set(seq, new Request(data, callback))
+            if (!this.send(data.bytes())) {
+                resolve(new Response(KIMStatus.SendFailed))
+            }
+        })
+    }
+    private fireEvent(event: KIMEvent) {
+        let listener = this.listeners.get(event)
+        if (!!listener) {
+            listener(event)
+        }
+    }
+    private packetHandler(pkt: LogicPkt) {
+        log.debug("received packet: ", pkt)
+
     }
     // 2、心跳
     private heartbeatLoop() {
-        console.debug("heartbeatLoop start")
+        log.debug("heartbeatLoop start")
 
         let loop = () => {
             if (this.state != State.CONNECTED) {
-                console.debug("heartbeatLoop exited")
+                log.debug("heartbeatLoop exited")
                 return
             }
 
-            console.log(`>>> send ping ; state is ${this.state},`)
+            log.log(`>>> send ping ; state is ${this.state},`)
             this.send(Ping)
 
-            setTimeout(loop, heartbeatInterval * 1000)
+            setTimeout(loop, heartbeatInterval)
         }
-        setTimeout(loop, heartbeatInterval * 1000)
+        setTimeout(loop, heartbeatInterval)
     }
     // 3、读超时
     private readDeadlineLoop() {
-        console.debug("deadlineLoop start")
+        log.debug("deadlineLoop start")
         let loop = () => {
             if (this.state != State.CONNECTED) {
-                console.debug("deadlineLoop exited")
+                log.debug("deadlineLoop exited")
                 return
             }
-            if ((Date.now() - this.lastRead) > 3 * heartbeatInterval * 1000) {
+            if ((Date.now() - this.lastRead) > 3 * heartbeatInterval) {
                 // 如果超时就调用errorHandler处理
                 this.errorHandler(new Error("read timeout"))
             }
@@ -209,10 +308,11 @@ export class KIMClient {
     }
     // 表示连接中止
     private onclose(reason: string) {
-        console.info("connection closed due to " + reason)
+        log.info("connection closed due to " + reason)
         this.state = State.CLOSED
+        this.conn = undefined
         // 通知上层应用，这里忽略
-        // this.closeCallback()
+        this.fireEvent(KIMEvent.Closed)
     }
     // 4. 自动重连
     private async errorHandler(error: Error) {
@@ -222,17 +322,19 @@ export class KIMClient {
             return
         }
         this.state = State.RECONNECTING
-        console.debug(error)
+        this.fireEvent(KIMEvent.Reconnecting)
         // 重连10次
         for (let index = 0; index < 10; index++) {
             try {
-                console.info("try to relogin")
-                let { status } = await this.login()
-                if (status == "Success") {
+                log.info("try to relogin")
+                let { success, err } = await this.login()
+                if (success) {
+                    this.fireEvent(KIMEvent.Reconnected)
                     return
                 }
+                log.info(err)
             } catch (error) {
-                console.warn(error)
+                log.warn(error)
             }
             // 重连间隔时间，演示使用固定值
             await sleep(5)
@@ -247,7 +349,7 @@ export class KIMClient {
             this.conn.send(data)
         } catch (error) {
             // handle write error
-            this.errorHandler(new Error("read timeout"))
+            this.errorHandler(new Error("write timeout"))
             return false
         }
         return true

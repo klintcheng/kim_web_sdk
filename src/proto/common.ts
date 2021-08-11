@@ -6,16 +6,18 @@ export const protobufPackage = "pkt";
 
 /** status is a uint16 value */
 export enum Status {
+  /** Success - client defined */
   Success = 0,
-  SessionNotFound = 10,
-  /** NoDestination - client error 100-300 */
+  /** NoDestination - client error 100-200 */
   NoDestination = 100,
   InvalidPacketBody = 101,
   InvalidCommand = 103,
   Unauthorized = 105,
-  /** SystemException - server error > 300 */
-  SystemException = 500,
-  NotImplemented = 501,
+  /** SystemException - server error 300-400 */
+  SystemException = 300,
+  NotImplemented = 301,
+  /** SessionNotFound - specific error */
+  SessionNotFound = 404,
   UNRECOGNIZED = -1,
 }
 
@@ -24,9 +26,6 @@ export function statusFromJSON(object: any): Status {
     case 0:
     case "Success":
       return Status.Success;
-    case 10:
-    case "SessionNotFound":
-      return Status.SessionNotFound;
     case 100:
     case "NoDestination":
       return Status.NoDestination;
@@ -39,12 +38,15 @@ export function statusFromJSON(object: any): Status {
     case 105:
     case "Unauthorized":
       return Status.Unauthorized;
-    case 500:
+    case 300:
     case "SystemException":
       return Status.SystemException;
-    case 501:
+    case 301:
     case "NotImplemented":
       return Status.NotImplemented;
+    case 404:
+    case "SessionNotFound":
+      return Status.SessionNotFound;
     case -1:
     case "UNRECOGNIZED":
     default:
@@ -56,8 +58,6 @@ export function statusToJSON(object: Status): string {
   switch (object) {
     case Status.Success:
       return "Success";
-    case Status.SessionNotFound:
-      return "SessionNotFound";
     case Status.NoDestination:
       return "NoDestination";
     case Status.InvalidPacketBody:
@@ -70,6 +70,8 @@ export function statusToJSON(object: Status): string {
       return "SystemException";
     case Status.NotImplemented:
       return "NotImplemented";
+    case Status.SessionNotFound:
+      return "SessionNotFound";
     default:
       return "UNKNOWN";
   }

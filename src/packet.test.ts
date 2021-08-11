@@ -1,5 +1,5 @@
 import { LoginReq } from "./proto/protocol"
-import { Command, LogicPkt, MagicLogicPkt, print } from "./packet"
+import { Command, LogicPkt, MagicLogicPktInt, print } from "./packet"
 import log from 'loglevel-es';
 
 log.setLevel("debug")
@@ -17,7 +17,7 @@ describe("decode", () => {
         let buf = loginReq.bytes()
         print(buf)
 
-        expect(buf.subarray(0, 4).equals(MagicLogicPkt)).toBeTruthy()
+        expect(buf.readInt32BE()).toEqual(MagicLogicPktInt)
 
         let req2 = LogicPkt.from(buf.subarray(4))
         expect(req2.command).toEqual(Command.SignIn)

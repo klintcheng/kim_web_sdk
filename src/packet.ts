@@ -33,10 +33,11 @@ export enum Command {
     GroupDetail = "chat.group.detail",
 }
 
-export const MagicLogicPkt = new Uint8Array([0xc3, 0x11, 0xa3, 0x65])
-export const MagicBasicPkt = new Uint8Array([0xc3, 0x15, 0xa7, 0x65])
+const MagicLogicPkt = new Uint8Array([0xc3, 0x11, 0xa3, 0x65])
+const MagicBasicPkt = new Uint8Array([0xc3, 0x15, 0xa7, 0x65])
 
-const MagicLogicPktInt = Buffer.from(MagicLogicPkt).readInt32BE()
+export const MagicLogicPktInt = Buffer.from(MagicLogicPkt).readInt32BE()
+export const MagicBasicPktInt = Buffer.from(MagicBasicPkt).readInt32BE()
 
 export enum MessageType {
     Text = 1, // 文本
@@ -60,22 +61,22 @@ export const Ping = new Uint8Array([0xc3, 0x15, 0xa7, 0x65, 1, 0, 0, 0])
 export class LogicPkt {
     command?: string;
     channelId?: string;
-    sequence?: number;
+    sequence: number = 0;
     flag?: number;
-    status?: number;
+    status: number = Status.Success;
     dest?: string;
     payload: Uint8Array
     constructor() {
         this.payload = new Uint8Array();
     }
-    static Build(command: string, dest: string, payload?: Uint8Array): LogicPkt {
+    static Build(command: string, dest: string, payload: Uint8Array = new Uint8Array()): LogicPkt {
         // build LogicPkt
         let message = new LogicPkt()
         message.command = command
         message.sequence = Seq.Next()
         message.dest = dest
 
-        if (payload != null && payload.length > 0) {
+        if (payload.length > 0) {
             message.payload = payload
         }
         return message
@@ -84,7 +85,7 @@ export class LogicPkt {
         let offset = 0
         let magic = buf.readInt32BE(offset)
         let hlen = 0
-        if(magic == MagicLogicPktInt){
+        if (magic == MagicLogicPktInt) {
             offset += 4
         }
         hlen = buf.readInt32BE(offset)
