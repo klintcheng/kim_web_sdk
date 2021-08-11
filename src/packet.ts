@@ -1,5 +1,5 @@
 
-import {Header, Flag, Status } from './proto/common';
+import { Header, Flag, Status } from './proto/common';
 import log from 'loglevel-es';
 
 export class Seq {
@@ -35,6 +35,8 @@ export enum Command {
 
 export const MagicLogicPkt = new Uint8Array([0xc3, 0x11, 0xa3, 0x65])
 export const MagicBasicPkt = new Uint8Array([0xc3, 0x15, 0xa7, 0x65])
+
+const MagicLogicPktInt = Buffer.from(MagicLogicPkt).readInt32BE()
 
 export enum MessageType {
     Text = 1, // 文本
@@ -80,15 +82,21 @@ export class LogicPkt {
     }
     static from(buf: Buffer): LogicPkt {
         let offset = 0
-        let hlen = buf.readInt32LE(offset)
+        let magic = buf.readInt32BE(offset)
+        let hlen = 0
+        if(magic == MagicLogicPktInt){
+            offset += 4
+        }
+        hlen = buf.readInt32BE(offset)
         offset += 4
+
         let header = Header.decode(buf.subarray(offset, offset + hlen))
         offset += hlen
         // build message with header
         let message = new LogicPkt()
         Object.assign(message, header)
 
-        let plen = buf.readInt32LE(offset)
+        let plen = buf.readInt32BE(offset)
         offset += 4
         message.payload = buf.subarray(offset, offset + plen)
         return message
@@ -103,14 +111,21 @@ export class LogicPkt {
         Buffer.from(MagicLogicPkt).copy(buf, offset, 0)
         offset += 4
         // 4bytes Header Length
-        offset = buf.writeInt32LE(hlen, offset)
+        offset = buf.writeInt32BE(hlen, offset)
         // header
         Buffer.from(headerArray).copy(buf, offset, 0)
         offset += hlen
         // 4bytes Payload Length
-        offset = buf.writeInt32LE(plen, offset)
+        offset = buf.writeInt32BE(plen, offset)
         // payload
         Buffer.from(this.payload).copy(buf, offset, 0)
         return buf
     }
+}
+
+export let print = (arr: Uint8Array) => {
+    if (arr == null) {
+        return
+    }
+    console.info(`[${arr.join(",")}]`)
 }

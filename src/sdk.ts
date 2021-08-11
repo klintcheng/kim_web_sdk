@@ -58,7 +58,7 @@ export let doLogin = async (url: string, req: {
                 let pbreq = LoginReq.encode(LoginReq.fromJSON(req)).finish()
                 let loginpkt = LogicPkt.Build(Command.SignIn, "", pbreq)
                 let buf = loginpkt.bytes()
-                log.info(buf.toJSON())
+                log.info(`dologin send [${buf.join(",")}]`)
                 conn.send(buf)
             }
         }
@@ -74,14 +74,8 @@ export let doLogin = async (url: string, req: {
                 return
             }
             clearTimeout(tr)
-            let magic = evt.data.slice(0, 4)
-            if (magic !== MagicLogicPkt) {
-                log.warn(`error magic code:${magic}`)
-                resolve({ status: LoginState.Loginfailed, conn: conn });
-                return
-            }
             // wating for login response
-            let buf = Buffer.from(evt.data.slice(4))
+            let buf = Buffer.from(evt.data)
             let loginResp = LogicPkt.from(buf)
             if (loginResp.status != Status.Success) {
                 log.error("Login failed: " + loginResp.status)
@@ -108,10 +102,10 @@ export class KIMClient {
     private conn: w3cwebsocket | null
     private lastRead: number
     constructor(url: string, req: {
-        token: string;
-        isp?: string;
-        zone?: string;
-        tags?: string[];
+        token: string,
+        isp?: string,
+        zone?: string,
+        tags?: string[],
     }) {
         this.wsurl = url
         this.req = req
