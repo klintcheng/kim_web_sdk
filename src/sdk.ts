@@ -271,7 +271,7 @@ export class KIMClient {
     }
     private packetHandler(pkt: LogicPkt) {
         log.debug("received packet: ", pkt)
-
+        
     }
     // 2、心跳
     private heartbeatLoop() {

@@ -4,7 +4,7 @@ import log from 'loglevel-es';
 log.setLevel("info")
 jest.setTimeout(30*1000)
 
-test('doLogin', async (done) => {
+test('doLogin', async () => {
     // test1
     const token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2MiOiJ0ZXN0MSIsImFwcCI6ImtpbSIsImV4cCI6MTYyOTI1NDMzN30.aWpHyxy3XDvHMWT8jU5LywfKveVklpDYoDmtVBBHckc"
     const tags = ["web"]
@@ -14,12 +14,11 @@ test('doLogin', async (done) => {
     expect(channelId).toContain("test1")
     conn.onclose = () => {
         log.info("closed")
-        done()
     }
     conn.close()
 })
 
-test('clilogin', async (done) => {
+test('clilogin', async () => {
     // test1
     const token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2MiOiJ0ZXN0MSIsImFwcCI6ImtpbSIsImV4cCI6MTYyOTI1NDMzN30.aWpHyxy3XDvHMWT8jU5LywfKveVklpDYoDmtVBBHckc"
     const tags = ["web"]
@@ -29,7 +28,6 @@ test('clilogin', async (done) => {
     cli.register([KIMEvent.Closed], (evt: KIMEvent) => {
         log.info("--------",evt)
         if (evt == KIMEvent.Closed) {
-            done();
         }
     })
 
