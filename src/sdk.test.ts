@@ -14,6 +14,7 @@ test('doLogin', async (done) => {
     expect(channelId).toContain("test1")
     conn.onclose = () => {
         log.info("closed")
+        done()
     }
     conn.close()
 })
