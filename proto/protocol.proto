@@ -146,9 +146,3 @@ message MessageContent {
 message MessageContentResp {
     repeated MessageContent contents = 1;
 }
-
-// message Pkt {
-//     uint32 Source  = 1;
-//     uint64 Sequence = 3;
-//     bytes  Data = 5;
-// }

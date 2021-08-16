@@ -49,15 +49,6 @@ export enum MessageType {
 // LittleEndian
 export const Ping = new Uint8Array([0xc3, 0x15, 0xa7, 0x65, 1, 0, 0, 0])
 
-// export const PktHeader = {
-//     command?: string;
-//     channelId?: string;
-//     sequence?: number;
-//     flag?: Flag;
-//     status?: Status;
-//     dest?: string;
-// }
-
 export class LogicPkt {
     command?: string;
     channelId?: string;
