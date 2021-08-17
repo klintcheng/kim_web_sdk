@@ -2,8 +2,8 @@ import { w3cwebsocket, IMessageEvent, ICloseEvent } from 'websocket';
 import { Buffer } from 'buffer';
 import log from 'loglevel-es';
 import { Command, LogicPkt, MagicBasicPktInt, Ping } from './packet';
-import { Status } from './proto/common';
-import { LoginReq, LoginResp, MessageReq, MessageResp } from './proto/protocol';
+import { Flag, Status } from './proto/common';
+import { LoginReq, LoginResp, MessageReq, MessageResp, MessagePush, GroupCreateResp, GroupGetResp, MessageIndexResp, MessageContentResp } from './proto/protocol';
 
 const heartbeatInterval = 10 * 1000 // seconds
 const loginTimeout = 10 * 1000 // 10 seconds
@@ -38,7 +38,7 @@ export enum KIMEvent {
     Closed = "Closed"
 }
 
-export let doLogin = async (url: string, req: LoginBody): Promise<{ success: boolean, err?: Error, channelId?: string, conn: w3cwebsocket }> => {
+export let doLogin = async (url: string, req: LoginBody): Promise<{ success: boolean, err?: Error, channelId?: string, account?: string, conn: w3cwebsocket }> => {
     return new Promise((resolve, _) => {
         let conn = new w3cwebsocket(url)
         conn.binaryType = "arraybuffer"
@@ -81,12 +81,11 @@ export let doLogin = async (url: string, req: LoginBody): Promise<{ success: boo
                 return
             }
             let resp = LoginResp.decode(loginResp.payload)
-            resolve({ success: true, channelId: resp.channelId, conn: conn });
+            resolve({ success: true, channelId: resp.channelId, account: resp.account, conn: conn });
         }
 
     })
 }
-
 
 export class LoginBody {
     token: string;
@@ -123,14 +122,31 @@ export class Request {
     }
 }
 
+export class Message {
+    messageId: Long;
+    type?: number;
+    body?: string;
+    extra?: string;
+    sender?: string;
+    receiver?: string;
+    group?: string;
+    sendTime: Long;
+    constructor(messageId: Long, sendTime: Long) {
+        this.messageId = messageId
+        this.sendTime = sendTime
+    }
+}
+
 export class KIMClient {
     wsurl: string
     private req: LoginBody
     state = State.INIT
     channelId?: string
+    account?: string
     private conn?: w3cwebsocket
     private lastRead: number
     private listeners = new Map<string, (e: KIMEvent) => void>()
+    private messageCallback: (m: Message) => void
     // 全双工请求队列
     private sendq = new Map<number, Request>()
     constructor(url: string, req: {
@@ -142,6 +158,9 @@ export class KIMClient {
         this.wsurl = url
         this.req = req
         this.lastRead = Date.now()
+        this.messageCallback = (m: Message) => {
+            log.debug(`received a message from ${m.sender} -- ${m.body}`)
+        }
     }
     register(events: string[], callback: (e: KIMEvent) => void) {
         // 注册事件到Client中。
@@ -155,7 +174,7 @@ export class KIMClient {
             return { success: false, err: new Error("client has already been connected") }
         }
         this.state = State.CONNECTING
-        let { success, err, channelId, conn } = await doLogin(this.wsurl, this.req)
+        let { success, err, channelId, account, conn } = await doLogin(this.wsurl, this.req)
         if (!success) {
             this.state = State.INIT
             return { success, err }
@@ -193,7 +212,7 @@ export class KIMClient {
         }
         this.conn = conn
         this.channelId = channelId
-
+        this.account = account
         this.heartbeatLoop()
         this.readDeadlineLoop()
 
@@ -271,7 +290,26 @@ export class KIMClient {
     }
     private packetHandler(pkt: LogicPkt) {
         log.debug("received packet: ", pkt)
-        
+        if (pkt.flag == Flag.Response) {
+            let req = this.sendq.get(pkt.sequence)
+            if (req) {
+                req.callback(pkt)
+            }
+            return
+        }
+        switch (pkt.command) {
+            case Command.ChatUserTalk:
+            case Command.ChatGroupTalk:
+                let push = MessagePush.decode(pkt.payload)
+                let message = new Message(push.messageId, push.sendTime)
+                Object.assign(message, push)
+                message.receiver = this.account
+                if (pkt.command == Command.ChatGroupTalk) {
+                    message.group = pkt.dest
+                }
+                this.messageCallback(message)
+                break;
+        }
     }
     // 2、心跳
     private heartbeatLoop() {

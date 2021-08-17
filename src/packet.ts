@@ -29,7 +29,6 @@ export enum Command {
     GroupCreate = "chat.group.create",
     GroupJoin = "chat.group.join",
     GroupQuit = "chat.group.quit",
-    GroupMembers = "chat.group.members",
     GroupDetail = "chat.group.detail",
 }
 
