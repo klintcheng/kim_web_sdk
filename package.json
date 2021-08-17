@@ -4,6 +4,7 @@
   "description": "chatdemo im sdk",
   "main": "index.ts",
   "scripts": {
+    "test": "jest --detectOpenHandles --force-exit --noStackTrace",
     "run": "ts-node index.ts"
   },
   "repository": {
@@ -23,7 +24,19 @@
   "dependencies": {
     "@types/websocket": "^1.0.2",
     "buffer": "^6.0.3",
-    "ts-node": "^10.0.0",
+    "loglevel-es": "^1.7.1",
+    "ts-node": "^10.2.0",
     "websocket": "^1.0.34"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.15.0",
+    "@babel/preset-env": "^7.15.0",
+    "@babel/preset-typescript": "^7.15.0",
+    "@types/jest": "^27.0.1",
+    "babel-jest": "^27.0.6",
+    "jest": "^27.0.6",
+    "ts-jest": "^27.0.4",
+    "ts-proto": "^1.82.5",
+    "typescript": "^4.3.5"
   }
 }
