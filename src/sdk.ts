@@ -1,12 +1,12 @@
 import { w3cwebsocket, IMessageEvent, ICloseEvent } from 'websocket';
 import { Buffer } from 'buffer';
 import log from 'loglevel-es';
-import { Command, LogicPkt, MagicBasicPktInt, Ping } from './packet';
+import { Command, LogicPkt, MagicBasicPktInt, MessageType, Ping } from './packet';
 import { Flag, Status } from './proto/common';
-import { LoginReq, LoginResp, MessageReq, MessageResp, MessagePush, GroupCreateResp, GroupGetResp, MessageIndexResp, MessageContentResp } from './proto/protocol';
+import { LoginReq, LoginResp, MessageReq, MessageResp, MessagePush, GroupCreateResp, GroupGetResp, MessageIndexResp, MessageContentResp, ErrorResp } from './proto/protocol';
+import { doLogin, LoginBody } from './login';
 
 const heartbeatInterval = 10 * 1000 // seconds
-const loginTimeout = 10 * 1000 // 10 seconds
 const sendTimeout = 5 * 1000 // 10 seconds
 
 export let sleep = async (second: number): Promise<void> => {
@@ -38,67 +38,6 @@ export enum KIMEvent {
     Closed = "Closed"
 }
 
-export let doLogin = async (url: string, req: LoginBody): Promise<{ success: boolean, err?: Error, channelId?: string, account?: string, conn: w3cwebsocket }> => {
-    return new Promise((resolve, _) => {
-        let conn = new w3cwebsocket(url)
-        conn.binaryType = "arraybuffer"
-
-        // 设置一个登陆超时器
-        let tr = setTimeout(() => {
-            clearTimeout(tr)
-            resolve({ success: false, err: new Error("timeout"), conn: conn });
-        }, loginTimeout);
-
-        conn.onopen = () => {
-            if (conn.readyState == w3cwebsocket.OPEN) {
-                log.info(`connection established, send ${req}`)
-                // send handshake request
-                let pbreq = LoginReq.encode(LoginReq.fromJSON(req)).finish()
-                let loginpkt = LogicPkt.Build(Command.SignIn, "", pbreq)
-                let buf = loginpkt.bytes()
-                log.debug(`dologin send [${buf.join(",")}]`)
-                conn.send(buf)
-            }
-        }
-        conn.onerror = (error: Error) => {
-            clearTimeout(tr)
-            log.warn(error)
-            resolve({ success: false, err: error, conn: conn });
-        }
-
-        conn.onmessage = (evt) => {
-            if (typeof evt.data === 'string') {
-                log.warn("Received: '" + evt.data + "'");
-                return
-            }
-            clearTimeout(tr)
-            // wating for login response
-            let buf = Buffer.from(evt.data)
-            let loginResp = LogicPkt.from(buf)
-            if (loginResp.status != Status.Success) {
-                log.error("Login failed: " + loginResp.status)
-                resolve({ success: false, err: new Error(`response status is ${loginResp.status}`), conn: conn });
-                return
-            }
-            let resp = LoginResp.decode(loginResp.payload)
-            resolve({ success: true, channelId: resp.channelId, account: resp.account, conn: conn });
-        }
-
-    })
-}
-
-export class LoginBody {
-    token: string;
-    isp?: string;
-    zone?: string;
-    tags?: string[];
-    constructor(token: string, isp?: string, zone?: string, tags?: string[]) {
-        this.token = token;
-        this.isp = isp;
-        this.zone = zone;
-        this.tags = tags;
-    }
-}
 
 export class Response {
     status: number;
@@ -137,12 +76,23 @@ export class Message {
     }
 }
 
+export class Content {
+    type?: number;
+    body: string;
+    extra?: string;
+    constructor(body: string, type: number = MessageType.Text, extra?: string) {
+        this.type = type
+        this.body = body
+        this.extra = extra
+    }
+}
+
 export class KIMClient {
     wsurl: string
     private req: LoginBody
     state = State.INIT
-    channelId?: string
-    account?: string
+    channelId: string
+    account: string
     private conn?: w3cwebsocket
     private lastRead: number
     private listeners = new Map<string, (e: KIMEvent) => void>()
@@ -158,6 +108,8 @@ export class KIMClient {
         this.wsurl = url
         this.req = req
         this.lastRead = Date.now()
+        this.channelId = ""
+        this.account = ""
         this.messageCallback = (m: Message) => {
             log.debug(`received a message from ${m.sender} -- ${m.body}`)
         }
@@ -167,6 +119,9 @@ export class KIMClient {
         events.forEach((event) => {
             this.listeners.set(event, callback)
         })
+    }
+    onmessage(cb: (m: Message) => void) {
+        this.messageCallback = cb
     }
     // 1、登录
     async login(): Promise<{ success: boolean, err?: Error }> {
@@ -211,8 +166,10 @@ export class KIMClient {
             this.errorHandler(new Error(e.reason))
         }
         this.conn = conn
-        this.channelId = channelId
-        this.account = account
+        if (channelId && account) {
+            this.channelId = channelId
+            this.account = account
+        }
         this.heartbeatLoop()
         this.readDeadlineLoop()
 
@@ -236,8 +193,8 @@ export class KIMClient {
     * @param req 请求的消息内容
     * @returns status KIMStatus|Status
     */
-    async talkToUser(dest: string, req: MessageReq): Promise<{ status: number, resp?: MessageResp }> {
-        return this.talk(Command.ChatUserTalk, dest, req)
+    async talkToUser(dest: string, req: Content): Promise<{ status: number, resp?: MessageResp, err?: ErrorResp }> {
+        return this.talk(Command.ChatUserTalk, dest, MessageReq.fromJSON(req))
     }
     /**
      * 给群dest发送一条消息
@@ -245,15 +202,16 @@ export class KIMClient {
      * @param req 请求的消息内容
      * @returns status KIMStatus|Status
      */
-    async talkToGroup(dest: string, req: MessageReq): Promise<{ status: number, resp?: MessageResp }> {
-        return this.talk(Command.ChatGroupTalk, dest, req)
+    async talkToGroup(dest: string, req: Content): Promise<{ status: number, resp?: MessageResp, err?: ErrorResp }> {
+        return this.talk(Command.ChatGroupTalk, dest, MessageReq.fromJSON(req))
     }
-    private async talk(command: string, dest: string, req: MessageReq): Promise<{ status: number, resp?: MessageResp }> {
+    private async talk(command: string, dest: string, req: MessageReq): Promise<{ status: number, resp?: MessageResp, err?: ErrorResp }> {
         let pbreq = MessageReq.encode(req).finish()
-        let pkt = LogicPkt.Build(command, dest, pbreq)
+        let pkt = LogicPkt.build(command, dest, pbreq)
         let resp = await this.request(pkt)
         if (resp.status != Status.Success) {
-            return { status: resp.status }
+            let err = ErrorResp.decode(pkt.payload)
+            return { status: resp.status, err: err }
         }
         return { status: resp.status, resp: MessageResp.decode(resp.payload) }
     }
