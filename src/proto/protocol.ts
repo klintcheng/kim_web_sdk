@@ -14,6 +14,7 @@ export interface LoginReq {
 
 export interface LoginResp {
   channelId: string;
+  account: string;
 }
 
 export interface KickoutNotify {
@@ -268,7 +269,7 @@ export const LoginReq = {
   },
 };
 
-const baseLoginResp: object = { channelId: "" };
+const baseLoginResp: object = { channelId: "", account: "" };
 
 export const LoginResp = {
   encode(
@@ -277,6 +278,9 @@ export const LoginResp = {
   ): _m0.Writer {
     if (message.channelId !== "") {
       writer.uint32(10).string(message.channelId);
+    }
+    if (message.account !== "") {
+      writer.uint32(18).string(message.account);
     }
     return writer;
   },
@@ -290,6 +294,9 @@ export const LoginResp = {
       switch (tag >>> 3) {
         case 1:
           message.channelId = reader.string();
+          break;
+        case 2:
+          message.account = reader.string();
           break;
         default:
           reader.skipType(tag & 7);
@@ -306,12 +313,18 @@ export const LoginResp = {
     } else {
       message.channelId = "";
     }
+    if (object.account !== undefined && object.account !== null) {
+      message.account = String(object.account);
+    } else {
+      message.account = "";
+    }
     return message;
   },
 
   toJSON(message: LoginResp): unknown {
     const obj: any = {};
     message.channelId !== undefined && (obj.channelId = message.channelId);
+    message.account !== undefined && (obj.account = message.account);
     return obj;
   },
 
@@ -321,6 +334,11 @@ export const LoginResp = {
       message.channelId = object.channelId;
     } else {
       message.channelId = "";
+    }
+    if (object.account !== undefined && object.account !== null) {
+      message.account = object.account;
+    } else {
+      message.account = "";
     }
     return message;
   },
