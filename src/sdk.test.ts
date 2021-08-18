@@ -18,16 +18,22 @@ const tokens = [
 const gatewayURL = "ws://119.3.4.216:8000"
 
 test('doLogin', async () => {
-    // test1
     const tags = ["web"]
-    let { success, err, channelId, conn } = await doLogin(gatewayURL, { token: tokens[0], tags })
+    let { success, channelId, account, conn } = await doLogin(gatewayURL, { token: tokens[0], tags })
     expect(success).toBeTruthy()
-    log.info("channelId --", channelId)
+    log.info(account, channelId)
     expect(channelId).toContain("test1")
+    expect(account).toEqual("test1")
     conn.onclose = () => {
         log.info("closed")
     }
     conn.close()
+})
+
+test('doLoginfail', async () => {
+    const tags = ["web"]
+    let { success } = await doLogin(gatewayURL, { token: "", tags })
+    expect(success).toBeFalsy()
 })
 
 test('clilogin', async () => {
