@@ -32,8 +32,9 @@ test('doLogin', async () => {
 
 test('doLoginfail', async () => {
     const tags = ["web"]
-    let { success } = await doLogin(gatewayURL, { token: "", tags })
+    let { success, err } = await doLogin(gatewayURL, { token: "", tags })
     expect(success).toBeFalsy()
+    log.error(err)
 })
 
 test('clilogin', async () => {
