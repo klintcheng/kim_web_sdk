@@ -17,7 +17,7 @@ const tokens = [
 
 const gatewayURL = "ws://119.3.4.216:8000"
 
-test('doLogin', async (done) => {
+test('doLogin', async () => {
     // test1
     const tags = ["web"]
     let { success, err, channelId, conn } = await doLogin(gatewayURL, { token: tokens[0], tags })
@@ -26,7 +26,6 @@ test('doLogin', async (done) => {
     expect(channelId).toContain("test1")
     conn.onclose = () => {
         log.info("closed")
-        done()
     }
     conn.close()
 })
@@ -46,7 +45,7 @@ test('clilogin', async () => {
     cli.logout()
 })
 
-test('usertalk', async (done) => {
+test('usertalk', async () => {
     // test1
     const tags = ["web"]
     let cli = new KIMClient(gatewayURL, { token: tokens[0], tags });
@@ -62,7 +61,6 @@ test('usertalk', async (done) => {
         expect(m.receiver).toEqual(cli2.account)
         expect(m.body).toEqual("hello")
         expect(m.type).toEqual(MessageType.Text)
-        done()
     })
     // { type: 1, body: "hello" }
     let { status, resp, err: er } = await cli.talkToUser(cli2.account, new Content("hello"))
@@ -70,9 +68,10 @@ test('usertalk', async (done) => {
     if (er) {
         log.error("---", er.message)
     }
-    expect(resp?.messageId).toBeGreaterThan(1000)
-    expect(resp?.sendTime).toBeGreaterThan(1000)
+    expect(resp?.messageId.greaterThan(1000)).toBeTruthy()
+    expect(resp?.sendTime.greaterThan(1000)).toBeTruthy()
     cli.logout()
     cli2.logout()
-    await sleep(1)
+    await sleep(2)
+    return
 })

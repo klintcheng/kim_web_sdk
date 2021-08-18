@@ -166,6 +166,7 @@ export class KIMClient {
             this.errorHandler(new Error(e.reason))
         }
         this.conn = conn
+        
         if (channelId && account) {
             this.channelId = channelId
             this.account = account

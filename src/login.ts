@@ -1,22 +1,18 @@
 
-import { w3cwebsocket, IMessageEvent, ICloseEvent } from 'websocket';
+import { w3cwebsocket } from 'websocket';
 import { Buffer } from 'buffer';
 import log from 'loglevel-es';
-import { Command, LogicPkt, MagicBasicPktInt, Ping } from './packet';
-import { Flag, Status } from './proto/common';
-import { LoginReq, LoginResp, MessageReq, MessageResp, MessagePush, GroupCreateResp, GroupGetResp, MessageIndexResp, MessageContentResp } from './proto/protocol';
+import { Command, LogicPkt } from './packet';
+import { Status } from './proto/common';
+import { LoginReq, LoginResp } from './proto/protocol';
 
 const loginTimeout = 10 * 1000 // 10 seconds
 
 export class LoginBody {
     token: string;
-    isp?: string;
-    zone?: string;
     tags?: string[];
-    constructor(token: string, isp?: string, zone?: string, tags?: string[]) {
+    constructor(token: string, tags?: string[]) {
         this.token = token;
-        this.isp = isp;
-        this.zone = zone;
         this.tags = tags;
     }
 }
