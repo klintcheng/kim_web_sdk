@@ -52,6 +52,24 @@ test('clilogin', async () => {
     cli.logout()
 })
 
+test('dokickout', async () => {
+    // test1
+    const tags = ["web"]
+    let cli = new KIMClient(gatewayURL, { token: tokens[0], tags });
+    let { success, err } = await cli.login()
+    expect(success).toBeTruthy()
+    cli.register([KIMEvent.Kickout], (evt: KIMEvent) => {
+        log.info("--------", evt)
+        expect(evt).toEqual(KIMEvent.Kickout)
+    })
+    
+    cli = new KIMClient(gatewayURL, { token: tokens[0], tags });
+    await cli.login()
+    await sleep(2)
+    
+    cli.logout()
+})
+
 test('usertalk', async () => {
     // test1
     const tags = ["web"]

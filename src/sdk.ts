@@ -35,7 +35,8 @@ export enum KIMStatus {
 export enum KIMEvent {
     Reconnecting = "Reconnecting", //重连中
     Reconnected = "Reconnected", //重连成功
-    Closed = "Closed"
+    Closed = "Closed",
+    Kickout = "Kickout", // 被踢
 }
 
 
@@ -139,7 +140,7 @@ export class KIMClient {
         conn.onmessage = (evt: IMessageEvent) => {
             try {
                 // 重置lastRead
-                this.lastRead = Date.now()                
+                this.lastRead = Date.now()
                 let buf = Buffer.from(<ArrayBuffer>evt.data)
                 let magic = buf.readInt32BE()
                 if (magic == MagicBasicPktInt) {//目前只有心跳包pong
@@ -271,6 +272,7 @@ export class KIMClient {
                 let ko = KickoutNotify.decode(pkt.payload)
                 if (ko.channelId == this.channelId) {
                     this.logout()
+                    this.fireEvent(KIMEvent.Kickout)
                 }
                 break;
         }
