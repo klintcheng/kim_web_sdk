@@ -30,7 +30,7 @@ export let doLogin = async (url: string, req: LoginBody): Promise<{ success: boo
 
         conn.onopen = () => {
             if (conn.readyState == w3cwebsocket.OPEN) {
-                log.info(`connection established, send ${req}`)
+                log.info(`connection established, send ${req.token}`)
                 // send handshake request
                 let pbreq = LoginReq.encode(LoginReq.fromJSON(req)).finish()
                 let loginpkt = LogicPkt.build(Command.SignIn, "", pbreq)

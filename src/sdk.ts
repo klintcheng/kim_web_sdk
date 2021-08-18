@@ -3,7 +3,7 @@ import { Buffer } from 'buffer';
 import log from 'loglevel-es';
 import { Command, LogicPkt, MagicBasicPktInt, MessageType, Ping } from './packet';
 import { Flag, Status } from './proto/common';
-import { LoginReq, LoginResp, MessageReq, MessageResp, MessagePush, GroupCreateResp, GroupGetResp, MessageIndexResp, MessageContentResp, ErrorResp } from './proto/protocol';
+import { LoginReq, LoginResp, MessageReq, MessageResp, MessagePush, GroupCreateResp, GroupGetResp, MessageIndexResp, MessageContentResp, ErrorResp, KickoutNotify } from './proto/protocol';
 import { doLogin, LoginBody } from './login';
 
 const heartbeatInterval = 10 * 1000 // seconds
@@ -139,8 +139,7 @@ export class KIMClient {
         conn.onmessage = (evt: IMessageEvent) => {
             try {
                 // 重置lastRead
-                this.lastRead = Date.now()
-
+                this.lastRead = Date.now()                
                 let buf = Buffer.from(<ArrayBuffer>evt.data)
                 let magic = buf.readInt32BE()
                 if (magic == MagicBasicPktInt) {//目前只有心跳包pong
@@ -166,7 +165,7 @@ export class KIMClient {
             this.errorHandler(new Error(e.reason))
         }
         this.conn = conn
-        
+
         if (channelId && account) {
             this.channelId = channelId
             this.account = account
@@ -268,6 +267,12 @@ export class KIMClient {
                 }
                 this.messageCallback(message)
                 break;
+            case Command.SignIn:
+                let ko = KickoutNotify.decode(pkt.payload)
+                if (ko.channelId == this.channelId) {
+                    this.logout()
+                }
+                break;
         }
     }
     // 2、心跳
@@ -308,7 +313,9 @@ export class KIMClient {
         log.info("connection closed due to " + reason)
         this.state = State.CLOSED
         this.conn = undefined
-        // 通知上层应用，这里忽略
+        this.channelId = ""
+        this.account = ""
+        // 通知上层应用
         this.fireEvent(KIMEvent.Closed)
     }
     // 4. 自动重连
