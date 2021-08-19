@@ -8,6 +8,8 @@ import { ErrorResp } from "./proto/protocol";
 log.setLevel("debug")
 jest.setTimeout(30 * 1000)
 
+// https://jestjs.io/docs/cli
+
 //三个测试账号 test1 ,test2 ,test3
 const tokens = [
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2MiOiJ0ZXN0MSIsImFwcCI6ImtpbSIsImV4cCI6MTY2MDYzNDQ4Nn0.YsjY42O9A1hIZaxgbgyUXjQul2RBmwFiAufdlZe3boo",
@@ -45,8 +47,6 @@ test('clilogin', async () => {
     expect(success).toBeTruthy()
     cli.register([KIMEvent.Closed], (evt: KIMEvent) => {
         log.info("--------", evt)
-        if (evt == KIMEvent.Closed) {
-        }
     })
     expect(cli.account).toEqual("test1")
     cli.logout()
