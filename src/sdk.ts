@@ -3,10 +3,11 @@ import { Buffer } from 'buffer';
 import log from 'loglevel-es';
 import { Command, LogicPkt, MagicBasicPktInt, MessageType, Ping } from './packet';
 import { Flag, Status } from './proto/common';
-import { LoginReq, LoginResp, MessageReq, MessageResp, MessagePush, GroupCreateResp, GroupGetResp, MessageIndexResp, MessageContentResp, ErrorResp, KickoutNotify } from './proto/protocol';
+import { LoginReq, LoginResp, MessageReq, MessageResp, MessagePush, GroupCreateResp, GroupGetResp, MessageIndexResp, MessageContentResp, ErrorResp, KickoutNotify, MessageAckReq, MessageIndexReq, MessageIndex, MessageContentReq } from './proto/protocol';
 import { doLogin, LoginBody } from './login';
+import Long from 'long';
 
-const heartbeatInterval = 10 * 1000 // seconds
+const heartbeatInterval = 55 * 1000 // seconds
 const sendTimeout = 5 * 1000 // 10 seconds
 
 export let sleep = async (second: number): Promise<void> => {
@@ -62,6 +63,83 @@ export class Request {
     }
 }
 
+export class OfflineMessages {
+    private cli: KIMClient
+    private groupmessages = new Map<string, Message[]>()
+    private usermessages = new Map<string, Message[]>()
+    constructor(cli: KIMClient, indexes: MessageIndex[]) {
+        this.cli = cli
+        indexes.forEach(idx => {
+            let message = new Message(idx.messageId, idx.sendTime)
+            if (idx.direction == 1) {
+                message.sender = cli.account
+                message.receiver = idx.accountB
+            } else {
+                message.sender = idx.accountB
+                message.receiver = cli.account
+            }
+
+            if (!!idx.group) {
+                if (!this.groupmessages.has(idx.group)) {
+                    this.groupmessages.set(idx.group, new Array<Message>())
+                }
+                this.groupmessages.get(idx.group)?.push(message)
+            } else {
+                if (!this.usermessages.has(idx.accountB)) {
+                    this.usermessages.set(idx.accountB, new Array<Message>())
+                }
+                this.usermessages.get(idx.accountB)?.push(message)
+            }
+        })
+    }
+    /**
+     * lazy load group offline messages, the page count is 50
+     * @param page page number, start from one
+     */
+    async loadgroup(group: string, page: number): Promise<Message[]> {
+        if (!this.groupmessages.has(group)) {
+            return new Array<Message>();
+        }
+        const pageCount = 50
+        let i = (page - 1) * pageCount
+        let msgs = this.groupmessages.get(group)?.slice(i, i + pageCount)
+        if (!msgs || msgs.length == 0) {
+            return new Array<Message>();
+        }
+        //TODO: load from server
+        if (!msgs[0].body) {
+        }
+        return msgs
+    }
+    async loadUser(account: string, page: number): Promise<Message[]> {
+        if (!this.usermessages.has(account)) {
+            return new Array<Message>();
+        }
+        const pageCount = 50
+        let i = (page - 1) * pageCount
+        let msgs = this.usermessages.get(account)?.slice(i, i + pageCount)
+        if (!msgs || msgs.length == 0) {
+            return new Array<Message>();
+        }
+        //TODO: load from server
+        if (!msgs[0].body) {
+        }
+        return msgs
+    }
+    async loadcontent(messageIds: Long[]): Promise<{ status: number, indexes?: MessageIndex[] }> {
+        let req = MessageContentReq.encode({ messageIds })
+        let pkt = LogicPkt.build(Command.OfflineIndex, "", req.finish())
+        let resp = await this.cli.request(pkt)
+        if (resp.status != Status.Success) {
+            let err = ErrorResp.decode(pkt.payload)
+            log.error(err)
+            return { status: resp.status }
+        }
+        let respbody = MessageIndexResp.decode(resp.payload)
+        return { status: resp.status, indexes: respbody.indexes }
+    }
+}
+
 export class Message {
     messageId: Long;
     type?: number;
@@ -96,8 +174,10 @@ export class KIMClient {
     account: string
     private conn?: w3cwebsocket
     private lastRead: number
+    private lastMessage?: Message
     private listeners = new Map<string, (e: KIMEvent) => void>()
     private messageCallback: (m: Message) => void
+    private offmessageCallback: (m: OfflineMessages) => void
     // 全双工请求队列
     private sendq = new Map<number, Request>()
     constructor(url: string, req: {
@@ -114,6 +194,9 @@ export class KIMClient {
         this.messageCallback = (m: Message) => {
             log.debug(`received a message from ${m.sender} -- ${m.body}`)
         }
+        this.offmessageCallback = (m: OfflineMessages) => {
+
+        }
     }
     register(events: string[], callback: (e: KIMEvent) => void) {
         // 注册事件到Client中。
@@ -123,6 +206,9 @@ export class KIMClient {
     }
     onmessage(cb: (m: Message) => void) {
         this.messageCallback = cb
+    }
+    onofflinemessage(cb: (m: OfflineMessages) => void) {
+        this.offmessageCallback = cb
     }
     // 1、登录
     async login(): Promise<{ success: boolean, err?: Error }> {
@@ -171,10 +257,12 @@ export class KIMClient {
             this.channelId = channelId
             this.account = account
         }
-        this.heartbeatLoop()
-        this.readDeadlineLoop()
 
         this.state = State.CONNECTED
+        this.heartbeatLoop()
+        this.readDeadlineLoop()
+        this.messageAckLoop()
+
         return { success, err }
     }
     logout() {
@@ -266,7 +354,18 @@ export class KIMClient {
                 if (pkt.command == Command.ChatGroupTalk) {
                     message.group = pkt.dest
                 }
-                this.messageCallback(message)
+                if (!MsgStorage.exist(message.messageId)) {
+                    try {
+                        this.messageCallback(message)
+                    } catch (error) {
+                        log.error(error)
+                    }
+                    MsgStorage.insert(message)
+                    // 确保状态处于CONNECTED，才能执行消息ACK
+                    if (this.state == State.CONNECTED) {
+                        this.lastMessage = message
+                    }
+                }
                 break;
             case Command.SignIn:
                 let ko = KickoutNotify.decode(pkt.payload)
@@ -280,19 +379,20 @@ export class KIMClient {
     // 2、心跳
     private heartbeatLoop() {
         log.debug("heartbeatLoop start")
-
+        let start = Date.now()
         let loop = () => {
             if (this.state != State.CONNECTED) {
                 log.debug("heartbeatLoop exited")
                 return
             }
-
-            log.log(`>>> send ping ; state is ${this.state},`)
-            this.send(Ping)
-
-            setTimeout(loop, heartbeatInterval)
+            if (Date.now() - start >= heartbeatInterval) {
+                log.debug(`>>> send ping ; state is ${this.state}`)
+                start = Date.now()
+                this.send(Ping)
+            }
+            setTimeout(loop, 500)
         }
-        setTimeout(loop, heartbeatInterval)
+        setTimeout(loop, 1000)
     }
     // 3、读超时
     private readDeadlineLoop() {
@@ -306,9 +406,71 @@ export class KIMClient {
                 // 如果超时就调用errorHandler处理
                 this.errorHandler(new Error("read timeout"))
             }
-            setTimeout(loop, 1000)
+            setTimeout(loop, 500)
         }
         setTimeout(loop, 1000)
+    }
+    private messageAckLoop() {
+        let start = Date.now()
+        let loop = () => {
+            if (this.state != State.CONNECTED) {
+                log.debug("messageAckLoop exited")
+                return
+            }
+            if (this.lastMessage && Date.now() - start > 3000) {
+                let req = MessageAckReq.encode({ messageId: this.lastMessage.messageId })
+                let pkt = LogicPkt.build(Command.ChatTalkAck, "", req.finish())
+                start = Date.now()
+                this.send(pkt.bytes())
+            }
+            setTimeout(loop, 500)
+        }
+        setTimeout(loop, 1000)
+    }
+    private async loadOfflineMessage() {
+        log.debug("loadOfflineMessage start")
+        // 1. 加载消息索引
+
+        let loadIndex = async (messageId: Long = Long.ZERO): Promise<{ status: number, indexes?: MessageIndex[] }> => {
+            let req = MessageIndexReq.encode({ messageId })
+            let pkt = LogicPkt.build(Command.OfflineIndex, "", req.finish())
+            let resp = await this.request(pkt)
+            if (resp.status != Status.Success) {
+                let err = ErrorResp.decode(pkt.payload)
+                log.error(err)
+                return { status: resp.status }
+            }
+            let respbody = MessageIndexResp.decode(resp.payload)
+            return { status: resp.status, indexes: respbody.indexes }
+        }
+        let offmessages = new Array<MessageIndex>();
+        let messageId = MsgStorage.lastId()
+        while (true) {
+            let { status, indexes } = await loadIndex(messageId)
+            if (status != Status.Success) {
+                break
+            }
+            if (!indexes || !indexes.length) {
+                break
+            }
+
+            messageId = indexes[indexes.length - 1].messageId
+            offmessages = offmessages.concat(indexes)
+
+            // indexes.forEach((idx) => {
+            //     let message = new Message(idx.messageId, idx.sendTime)
+            //     if (idx.direction == 1) {
+            //         message.sender = this.account
+            //         message.receiver = idx.accountB
+            //     } else {
+            //         message.sender = idx.accountB
+            //         message.receiver = this.account
+            //     }
+            //     offmessages.push(message)
+            // })
+        }
+        let om = new OfflineMessages(this, offmessages)
+        this.offmessageCallback(om)
     }
     // 表示连接中止
     private onclose(reason: string) {
@@ -331,6 +493,7 @@ export class KIMClient {
         this.fireEvent(KIMEvent.Reconnecting)
         // 重连10次
         for (let index = 0; index < 10; index++) {
+            await sleep(3)
             try {
                 log.info("try to relogin")
                 let { success, err } = await this.login()
@@ -342,8 +505,6 @@ export class KIMClient {
             } catch (error) {
                 log.warn(error)
             }
-            // 重连间隔时间，演示使用固定值
-            await sleep(5)
         }
         this.onclose("reconnect timeout")
     }
@@ -359,5 +520,26 @@ export class KIMClient {
             return false
         }
         return true
+    }
+}
+
+class MsgStorage {
+    // 记录一条消息
+    static insert(msg: {
+        messageId: Long;
+        sender?: string;
+        group?: string;
+        sendTime: Long;
+    }): boolean {
+        localStorage.setItem(`kim_msg_${msg.messageId.toString()}`, JSON.stringify(msg))
+        localStorage.setItem("kim_last", msg.messageId.toString())
+        return true
+    }
+    // 检查消息是否已经保存
+    static exist(id: Long): boolean {
+        return !!localStorage.getItem(`kim_msg_${id.toString()}`)
+    }
+    static lastId(): Long {
+        return Long.fromString(localStorage.getItem("kim_last") || "0")
     }
 }
