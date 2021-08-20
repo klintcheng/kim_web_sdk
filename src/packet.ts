@@ -45,7 +45,6 @@ export enum MessageType {
     Video = 4, //视频
 }
 
-// LittleEndian
 export const Ping = new Uint8Array([0xc3, 0x15, 0xa7, 0x65, 0, 1, 0, 0])
 export const Pong = new Uint8Array([0xc3, 0x15, 0xa7, 0x65, 0, 2, 0, 0])
 
