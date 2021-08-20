@@ -220,10 +220,10 @@ export class KIMClient {
         this.channelId = ""
         this.account = ""
         this.messageCallback = (m: Message) => {
-            log.warn(`throw a message from ${m.sender} -- ${m.body}, Please check you had register a onmessage before login`)
+            log.warn(`throw a message from ${m.sender} -- ${m.body}\nPlease check you had register a onmessage callback method before login`)
         }
         this.offmessageCallback = (m: OfflineMessages) => {
-            log.warn(`throw OfflineMessages,Please check you had register a onofflinemessage before login`)
+            log.warn(`throw OfflineMessages.\nPlease check you had register a onofflinemessage callback method before login`)
         }
     }
     register(events: string[], callback: (e: KIMEvent) => void) {
@@ -299,11 +299,18 @@ export class KIMClient {
             if (!this.conn) {
                 return
             }
-            this.closeCallback = () => {
+            let tr = setTimeout(() => {
+                log.debug("oh no,logout is timeout~")
+                resolve()
+            }, 2000)
+
+            this.closeCallback = async () => {
+                clearTimeout(tr)
+                await sleep(1)
                 resolve()
             }
-            log.info("Connection closing...")
             this.conn.close()
+            log.info("Connection closing...")
         })
     }
     /**
@@ -560,7 +567,7 @@ export class KIMClient {
     }
 }
 
-class MsgStorage {
+export class MsgStorage {
     // 记录一条消息
     static insert(msg: {
         messageId: Long;

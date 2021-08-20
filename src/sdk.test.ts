@@ -1,10 +1,10 @@
-import { Content, KIMClient, KIMEvent, KIMStatus, Message, OfflineMessages, sleep } from "./sdk"
+import { Content, KIMClient, KIMEvent, MsgStorage, Message, OfflineMessages, sleep } from "./sdk"
 import log from 'loglevel-es';
 import { doLogin } from "./login";
 import { Status } from "./proto/common";
 import { MessageType } from "./packet";
+import Long from 'long';
 import 'jest-localstorage-mock';
-
 log.setLevel("debug")
 jest.setTimeout(30 * 1000)
 
@@ -39,17 +39,29 @@ test('doLoginfail', async () => {
     log.error(err)
 })
 
+test('store', async () => {
+    let ok =  MsgStorage.insert({
+        messageId: Long.fromNumber(1),
+        sendTime: Long.fromNumber(1),
+    })
+    expect(ok).toBeTruthy()
+    let id = MsgStorage.lastId()
+    expect(id.toString()).toEqual("1")
+})
+
 test('clilogin', async () => {
     // test1
     const tags = ["web"]
     let cli = new KIMClient(gatewayURL, { token: tokens[0], tags });
     let { success, err } = await cli.login()
     expect(success).toBeTruthy()
-    cli.register([KIMEvent.Closed], (evt: KIMEvent) => {
+    let callback = (evt: KIMEvent) => {
         log.info("--------", evt)
-    })
+    };
+    cli.register([KIMEvent.Closed], callback)
     expect(cli.account).toEqual("test1")
     await cli.logout()
+    await sleep(4)
 })
 
 test('dokickout', async () => {

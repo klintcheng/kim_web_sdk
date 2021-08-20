@@ -1,5 +1,6 @@
-import { KIMClient } from "./src/sdk";
+import { KIMClient, KIMEvent } from "./src/sdk";
 import log from 'loglevel-es';
+import 'mock-local-storage'
 
 //三个测试账号 test1 ,test2 ,test3
 const tokens = [
@@ -17,6 +18,12 @@ let main = async () => {
     let cli = new KIMClient(gatewayURL, { token: tokens[0], tags });
     let { success, err } = await cli.login()
     log.info(success)
+    let callback = (evt: KIMEvent) => {
+        log.info("--------", evt)
+    };
+    cli.register([KIMEvent.Closed], callback)
+    await cli.logout()
+    
 }
 
 main()

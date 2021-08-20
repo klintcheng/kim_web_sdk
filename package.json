@@ -4,7 +4,7 @@
   "description": "chatdemo im sdk",
   "main": "index.ts",
   "scripts": {
-    "test": "jest --verbose --force-exit ",
+    "test": "jest --verbose --force-exit --noStackTrace",
     "run": "ts-node index.ts"
   },
   "repository": {
@@ -36,12 +36,15 @@
     "babel-jest": "^27.0.6",
     "jest": "^27.0.6",
     "jest-localstorage-mock": "^2.4.16",
+    "mock-local-storage": "^1.1.17",
     "ts-jest": "^27.0.4",
     "ts-proto": "^1.82.5",
     "typescript": "^4.3.5"
   },
   "jest": {
     "resetMocks": false,
-    "setupFiles": ["jest-localstorage-mock"]
+    "setupFiles": [
+      "jest-localstorage-mock"
+    ]
   }
 }
