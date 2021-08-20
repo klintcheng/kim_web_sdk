@@ -46,16 +46,8 @@ export enum MessageType {
 }
 
 // LittleEndian
-export const Ping = new Uint8Array([0xc3, 0x15, 0xa7, 0x65, 1, 0, 0, 0])
-
-// export const PktHeader = {
-//     command?: string;
-//     channelId?: string;
-//     sequence?: number;
-//     flag?: Flag;
-//     status?: Status;
-//     dest?: string;
-// }
+export const Ping = new Uint8Array([0xc3, 0x15, 0xa7, 0x65, 0, 1, 0, 0])
+export const Pong = new Uint8Array([0xc3, 0x15, 0xa7, 0x65, 0, 2, 0, 0])
 
 export class LogicPkt {
     command?: string;
@@ -68,13 +60,12 @@ export class LogicPkt {
     constructor() {
         this.payload = new Uint8Array();
     }
-    static Build(command: string, dest: string, payload: Uint8Array = new Uint8Array()): LogicPkt {
+    static build(command: string, dest: string, payload: Uint8Array = new Uint8Array()): LogicPkt {
         // build LogicPkt
         let message = new LogicPkt()
         message.command = command
         message.sequence = Seq.Next()
         message.dest = dest
-
         if (payload.length > 0) {
             message.payload = payload
         }
@@ -84,18 +75,19 @@ export class LogicPkt {
         let offset = 0
         let magic = buf.readInt32BE(offset)
         let hlen = 0
+        // 判断前面四个字节是否为Magic
         if (magic == MagicLogicPktInt) {
             offset += 4
         }
         hlen = buf.readInt32BE(offset)
         offset += 4
-
+        // 反序列化Header
         let header = Header.decode(buf.subarray(offset, offset + hlen))
         offset += hlen
-        // build message with header
         let message = new LogicPkt()
+        // 把header中的属性copy到message
         Object.assign(message, header)
-
+        // 读取payload
         let plen = buf.readInt32BE(offset)
         offset += 4
         message.payload = buf.subarray(offset, offset + plen)
