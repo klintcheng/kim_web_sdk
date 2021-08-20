@@ -213,12 +213,7 @@ export class KIMClient {
     private closeCallback?: () => void
     // 全双工请求队列
     private sendq = new Map<number, Request>()
-    constructor(url: string, req: {
-        token: string,
-        isp?: string,
-        zone?: string,
-        tags?: string[],
-    }) {
+    constructor(url: string, req: LoginBody) {
         this.wsurl = url
         this.req = req
         this.lastRead = Date.now()
