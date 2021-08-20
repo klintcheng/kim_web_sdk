@@ -49,7 +49,7 @@ test('clilogin', async () => {
         log.info("--------", evt)
     })
     expect(cli.account).toEqual("test1")
-    cli.logout()
+    await cli.logout()
 })
 
 test('dokickout', async () => {
@@ -65,9 +65,8 @@ test('dokickout', async () => {
 
     cli = new KIMClient(gatewayURL, { token: tokens[0], tags });
     await cli.login()
-    await sleep(2)
-
-    cli.logout()
+    await sleep(1)
+    await cli.logout()
 })
 
 test('usertalk', async () => {
@@ -84,8 +83,10 @@ test('usertalk', async () => {
         expect(m.receiver).toEqual(cli2.account)
         expect(m.body).toEqual("hello")
         expect(m.type).toEqual(MessageType.Text)
-    })
 
+        await cli.logout()
+        await cli2.logout()
+    })
     let { success: suc } = await cli2.login()
     expect(suc).toBeTruthy()
     // { type: 1, body: "hello" }
@@ -96,15 +97,16 @@ test('usertalk', async () => {
     }
     expect(resp?.messageId.greaterThan(1000)).toBeTruthy()
     expect(resp?.sendTime.greaterThan(1000)).toBeTruthy()
-    await sleep(2)
-    cli.logout()
-    cli2.logout()
+    await sleep(1)
 })
 
 test('offline', async () => {
     // test1
     const tags = ["web"]
     let cli = new KIMClient(gatewayURL, { token: tokens[0], tags });
+    cli.onofflinemessage(async (om: OfflineMessages) => {
+
+    })
     let { success, err } = await cli.login()
     expect(err).toBeUndefined()
     expect(success).toBeTruthy()
@@ -128,11 +130,10 @@ test('offline', async () => {
         let msgs = await om.loadUser(users[0], 1)
         expect(msgs.length).toBeGreaterThanOrEqual(1)
         expect(msgs[0].body).toEqual("hello")
+
+        await cli.logout()
+        await cli2.logout()
     })
     let { success: suc } = await cli2.login()
     expect(suc).toBeTruthy()
-
-    await sleep(5)
-    cli.logout()
-    cli2.logout()
 })

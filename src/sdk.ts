@@ -210,6 +210,7 @@ export class KIMClient {
     private listeners = new Map<string, (e: KIMEvent) => void>()
     private messageCallback: (m: Message) => void
     private offmessageCallback: (m: OfflineMessages) => void
+    private closeCallback?: () => void
     // 全双工请求队列
     private sendq = new Map<number, Request>()
     constructor(url: string, req: {
@@ -294,16 +295,21 @@ export class KIMClient {
         this.messageAckLoop()
         return { success, err }
     }
-    logout() {
-        if (this.state === State.CLOSEING) {
-            return
-        }
-        this.state = State.CLOSEING
-        if (!this.conn) {
-            return
-        }
-        log.info("Connection closing...")
-        this.conn.close()
+    logout(): Promise<void> {
+        return new Promise((resolve, _) => {
+            if (this.state === State.CLOSEING) {
+                return
+            }
+            this.state = State.CLOSEING
+            if (!this.conn) {
+                return
+            }
+            this.closeCallback = () => {
+                resolve()
+            }
+            log.info("Connection closing...")
+            this.conn.close()
+        })
     }
     /**
     * 给用户dest发送一条消息
@@ -311,8 +317,8 @@ export class KIMClient {
     * @param req 请求的消息内容
     * @returns status KIMStatus|Status
     */
-    async talkToUser(dest: string, req: Content): Promise<{ status: number, resp?: MessageResp, err?: ErrorResp }> {
-        return this.talk(Command.ChatUserTalk, dest, MessageReq.fromJSON(req))
+    async talkToUser(dest: string, req: Content, retry: number = 3): Promise<{ status: number, resp?: MessageResp, err?: ErrorResp }> {
+        return this.talk(Command.ChatUserTalk, dest, MessageReq.fromJSON(req), retry)
     }
     /**
      * 给群dest发送一条消息
@@ -320,18 +326,27 @@ export class KIMClient {
      * @param req 请求的消息内容
      * @returns status KIMStatus|Status
      */
-    async talkToGroup(dest: string, req: Content): Promise<{ status: number, resp?: MessageResp, err?: ErrorResp }> {
-        return this.talk(Command.ChatGroupTalk, dest, MessageReq.fromJSON(req))
+    async talkToGroup(dest: string, req: Content, retry: number = 3): Promise<{ status: number, resp?: MessageResp, err?: ErrorResp }> {
+        return this.talk(Command.ChatGroupTalk, dest, MessageReq.fromJSON(req), retry)
     }
-    private async talk(command: string, dest: string, req: MessageReq): Promise<{ status: number, resp?: MessageResp, err?: ErrorResp }> {
+    private async talk(command: string, dest: string, req: MessageReq, retry: number): Promise<{ status: number, resp?: MessageResp, err?: ErrorResp }> {
         let pbreq = MessageReq.encode(req).finish()
-        let pkt = LogicPkt.build(command, dest, pbreq)
-        let resp = await this.request(pkt)
-        if (resp.status != Status.Success) {
-            let err = ErrorResp.decode(pkt.payload)
+        for (let index = 0; index < retry + 1; index++) {
+            let pkt = LogicPkt.build(command, dest, pbreq)
+            let resp = await this.request(pkt)
+            if (resp.status == Status.Success) {
+                return { status: Status.Success, resp: MessageResp.decode(resp.payload) }
+            }
+            if (resp.status >= 300 && resp.status < 400) {
+                // 消息重发
+                log.warn("retry to send message")
+                await sleep(2)
+                continue
+            }
+            let err = ErrorResp.decode(resp.payload)
             return { status: resp.status, err: err }
         }
-        return { status: resp.status, resp: MessageResp.decode(resp.payload) }
+        return { status: KIMStatus.SendFailed, err: new Error("over max retry times") }
     }
     async request(data: LogicPkt): Promise<Response> {
         return new Promise((resolve, _) => {
@@ -366,6 +381,11 @@ export class KIMClient {
     }
     private packetHandler(pkt: LogicPkt) {
         log.debug("received packet: ", pkt)
+        if (pkt.status >= 400) {
+            log.info(`need relogin due to status ${pkt.status}`)
+            this.conn?.close()
+            return
+        }
         if (pkt.flag == Flag.Response) {
             let req = this.sendq.get(pkt.sequence)
             if (req) {
@@ -486,18 +506,6 @@ export class KIMClient {
             }
             messageId = indexes[indexes.length - 1].messageId
             offmessages = offmessages.concat(indexes)
-
-            // indexes.forEach((idx) => {
-            //     let message = new Message(idx.messageId, idx.sendTime)
-            //     if (idx.direction == 1) {
-            //         message.sender = this.account
-            //         message.receiver = idx.accountB
-            //     } else {
-            //         message.sender = idx.accountB
-            //         message.receiver = this.account
-            //     }
-            //     offmessages.push(message)
-            // })
         }
         log.info(`load offline indexes - ${offmessages.map(msg => msg.messageId.toString())}`)
         let om = new OfflineMessages(this, offmessages)
@@ -512,6 +520,9 @@ export class KIMClient {
         this.account = ""
         // 通知上层应用
         this.fireEvent(KIMEvent.Closed)
+        if (this.closeCallback) {
+            this.closeCallback()
+        }
     }
     // 4. 自动重连
     private async errorHandler(error: Error) {
