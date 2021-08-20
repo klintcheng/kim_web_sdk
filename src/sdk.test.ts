@@ -1,9 +1,9 @@
-import { Content, KIMClient, KIMEvent, KIMStatus, Message, sleep } from "./sdk"
+import { Content, KIMClient, KIMEvent, KIMStatus, Message, OfflineMessages, sleep } from "./sdk"
 import log from 'loglevel-es';
 import { doLogin } from "./login";
 import { Status } from "./proto/common";
 import { MessageType } from "./packet";
-import { ErrorResp } from "./proto/protocol";
+import 'jest-localstorage-mock';
 
 log.setLevel("debug")
 jest.setTimeout(30 * 1000)
@@ -62,11 +62,11 @@ test('dokickout', async () => {
         log.info("--------", evt)
         expect(evt).toEqual(KIMEvent.Kickout)
     })
-    
+
     cli = new KIMClient(gatewayURL, { token: tokens[0], tags });
     await cli.login()
     await sleep(2)
-    
+
     cli.logout()
 })
 
@@ -79,14 +79,15 @@ test('usertalk', async () => {
     expect(success).toBeTruthy()
 
     let cli2 = new KIMClient(gatewayURL, { token: tokens[1], tags });
-    let { success: suc } = await cli2.login()
-    expect(suc).toBeTruthy()
     cli2.onmessage(async (m: Message) => {
         expect(m.sender).toEqual(cli.account)
         expect(m.receiver).toEqual(cli2.account)
         expect(m.body).toEqual("hello")
         expect(m.type).toEqual(MessageType.Text)
     })
+
+    let { success: suc } = await cli2.login()
+    expect(suc).toBeTruthy()
     // { type: 1, body: "hello" }
     let { status, resp, err: er } = await cli.talkToUser(cli2.account, new Content("hello"))
     expect(status).toEqual(Status.Success)
@@ -95,8 +96,43 @@ test('usertalk', async () => {
     }
     expect(resp?.messageId.greaterThan(1000)).toBeTruthy()
     expect(resp?.sendTime.greaterThan(1000)).toBeTruthy()
+    await sleep(2)
     cli.logout()
     cli2.logout()
-    await sleep(2)
-    return
+})
+
+test('offline', async () => {
+    // test1
+    const tags = ["web"]
+    let cli = new KIMClient(gatewayURL, { token: tokens[0], tags });
+    let { success, err } = await cli.login()
+    expect(err).toBeUndefined()
+    expect(success).toBeTruthy()
+
+    // { type: 1, body: "hello" }
+    let { status, resp, err: er } = await cli.talkToUser("test2", new Content("hello"))
+    expect(status).toEqual(Status.Success)
+    if (er) {
+        log.error("---", er.message)
+    }
+    expect(resp?.messageId.greaterThan(1000)).toBeTruthy()
+    expect(resp?.sendTime.greaterThan(1000)).toBeTruthy()
+
+    let cli2 = new KIMClient(gatewayURL, { token: tokens[1], tags });
+    cli2.onofflinemessage(async (om: OfflineMessages) => {
+        let users = om.listUsers()
+        log.info("onofflinemessage -- load ", users)
+
+        expect(users.length).toBeGreaterThanOrEqual(1)
+        // lazy load messages
+        let msgs = await om.loadUser(users[0], 1)
+        expect(msgs.length).toBeGreaterThanOrEqual(1)
+        expect(msgs[0].body).toEqual("hello")
+    })
+    let { success: suc } = await cli2.login()
+    expect(suc).toBeTruthy()
+
+    await sleep(5)
+    cli.logout()
+    cli2.logout()
 })

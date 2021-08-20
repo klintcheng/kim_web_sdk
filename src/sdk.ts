@@ -3,7 +3,7 @@ import { Buffer } from 'buffer';
 import log from 'loglevel-es';
 import { Command, LogicPkt, MagicBasicPktInt, MessageType, Ping } from './packet';
 import { Flag, Status } from './proto/common';
-import { LoginReq, LoginResp, MessageReq, MessageResp, MessagePush, GroupCreateResp, GroupGetResp, MessageIndexResp, MessageContentResp, ErrorResp, KickoutNotify, MessageAckReq, MessageIndexReq, MessageIndex, MessageContentReq } from './proto/protocol';
+import { LoginReq, LoginResp, MessageReq, MessageResp, MessagePush, GroupCreateResp, GroupGetResp, MessageIndexResp, MessageContentResp, ErrorResp, KickoutNotify, MessageAckReq, MessageIndexReq, MessageIndex, MessageContentReq, MessageContent } from './proto/protocol';
 import { doLogin, LoginBody } from './login';
 import Long from 'long';
 
@@ -63,13 +63,17 @@ export class Request {
     }
 }
 
+const pageCount = 50
+
 export class OfflineMessages {
     private cli: KIMClient
     private groupmessages = new Map<string, Message[]>()
     private usermessages = new Map<string, Message[]>()
     constructor(cli: KIMClient, indexes: MessageIndex[]) {
         this.cli = cli
-        indexes.forEach(idx => {
+        // 通常离线消息的读取是从下向上，因此这里提前倒序下
+        for (let index = indexes.length - 1; index >= 0; index--) {
+            const idx = indexes[index];
             let message = new Message(idx.messageId, idx.sendTime)
             if (idx.direction == 1) {
                 message.sender = cli.account
@@ -90,53 +94,81 @@ export class OfflineMessages {
                 }
                 this.usermessages.get(idx.accountB)?.push(message)
             }
+        }
+    }
+    listGroups(): Array<string> {
+        let arr = new Array<string>()
+        this.groupmessages.forEach((_, key) => {
+            arr.push(key)
         })
+        return arr
+    }
+    listUsers(): Array<string> {
+        let arr = new Array<string>()
+        this.usermessages.forEach((_, key) => {
+            arr.push(key)
+        })
+        return arr
     }
     /**
      * lazy load group offline messages, the page count is 50
      * @param page page number, start from one
      */
-    async loadgroup(group: string, page: number): Promise<Message[]> {
-        if (!this.groupmessages.has(group)) {
+    async loadGroup(group: string, page: number): Promise<Message[]> {
+        let messages = this.groupmessages.get(group)
+        if (!messages) {
             return new Array<Message>();
         }
-        const pageCount = 50
-        let i = (page - 1) * pageCount
-        let msgs = this.groupmessages.get(group)?.slice(i, i + pageCount)
-        if (!msgs || msgs.length == 0) {
-            return new Array<Message>();
-        }
-        //TODO: load from server
-        if (!msgs[0].body) {
-        }
+        let msgs = await this.lazyLoad(messages, page);
         return msgs
     }
     async loadUser(account: string, page: number): Promise<Message[]> {
-        if (!this.usermessages.has(account)) {
+        let messages = this.usermessages.get(account)
+        if (!messages) {
             return new Array<Message>();
         }
-        const pageCount = 50
+        let msgs = await this.lazyLoad(messages, page);
+        return msgs
+    }
+    async lazyLoad(messages: Array<Message>, page: number): Promise<Array<Message>> {
         let i = (page - 1) * pageCount
-        let msgs = this.usermessages.get(account)?.slice(i, i + pageCount)
+        let msgs = messages.slice(i, i + pageCount)
+        log.debug(msgs)
         if (!msgs || msgs.length == 0) {
             return new Array<Message>();
         }
-        //TODO: load from server
-        if (!msgs[0].body) {
+        if (!!msgs[0].body) {
+            return msgs
+        }
+        //load from server
+        let { status, contents } = await this.loadcontent(msgs.map(idx => idx.messageId))
+        if (status != Status.Success) {
+            return msgs
+        }
+        log.debug(`load content ${contents.map(c => c.body)}`)
+        if (contents.length == msgs.length) {
+            for (let index = 0; index < msgs.length; index++) {
+                let msg = msgs[index];
+                let original = messages[i + index]
+                let content = contents[index]
+                Object.assign(msg, content)
+                Object.assign(original, content)
+            }
         }
         return msgs
     }
-    async loadcontent(messageIds: Long[]): Promise<{ status: number, indexes?: MessageIndex[] }> {
+    async loadcontent(messageIds: Long[]): Promise<{ status: number, contents: MessageContent[] }> {
         let req = MessageContentReq.encode({ messageIds })
-        let pkt = LogicPkt.build(Command.OfflineIndex, "", req.finish())
+        let pkt = LogicPkt.build(Command.OfflineContent, "", req.finish())
         let resp = await this.cli.request(pkt)
         if (resp.status != Status.Success) {
             let err = ErrorResp.decode(pkt.payload)
             log.error(err)
-            return { status: resp.status }
+            return { status: resp.status, contents: new Array<MessageContent>() }
         }
-        let respbody = MessageIndexResp.decode(resp.payload)
-        return { status: resp.status, indexes: respbody.indexes }
+        log.info(resp)
+        let respbody = MessageContentResp.decode(resp.payload)
+        return { status: resp.status, contents: respbody.contents }
     }
 }
 
@@ -192,10 +224,10 @@ export class KIMClient {
         this.channelId = ""
         this.account = ""
         this.messageCallback = (m: Message) => {
-            log.debug(`received a message from ${m.sender} -- ${m.body}`)
+            log.warn(`throw a message from ${m.sender} -- ${m.body}, Please check you had register a onmessage before login`)
         }
         this.offmessageCallback = (m: OfflineMessages) => {
-
+            log.warn(`throw OfflineMessages,Please check you had register a onofflinemessage before login`)
         }
     }
     register(events: string[], callback: (e: KIMEvent) => void) {
@@ -252,17 +284,14 @@ export class KIMClient {
             this.errorHandler(new Error(e.reason))
         }
         this.conn = conn
-
-        if (channelId && account) {
-            this.channelId = channelId
-            this.account = account
-        }
-
+        this.channelId = channelId || ""
+        this.account = account || ""
+        await this.loadOfflineMessage()
+        // success
         this.state = State.CONNECTED
         this.heartbeatLoop()
         this.readDeadlineLoop()
         this.messageAckLoop()
-
         return { success, err }
     }
     logout() {
@@ -321,7 +350,7 @@ export class KIMClient {
                 this.sendq.delete(seq)
                 resolve(new Response(pkt.status, pkt.dest, pkt.payload))
             }
-            log.debug("chat send:", seq, data.payload)
+            log.debug(`request seq:${seq} command:${data.command}`)
 
             this.sendq.set(seq, new Request(data, callback))
             if (!this.send(data.bytes())) {
@@ -341,6 +370,8 @@ export class KIMClient {
             let req = this.sendq.get(pkt.sequence)
             if (req) {
                 req.callback(pkt)
+            } else {
+                log.error(`req of ${pkt.sequence} no found in sendq`)
             }
             return
         }
@@ -392,7 +423,7 @@ export class KIMClient {
             }
             setTimeout(loop, 500)
         }
-        setTimeout(loop, 1000)
+        setTimeout(loop, 500)
     }
     // 3、读超时
     private readDeadlineLoop() {
@@ -408,7 +439,7 @@ export class KIMClient {
             }
             setTimeout(loop, 500)
         }
-        setTimeout(loop, 1000)
+        setTimeout(loop, 500)
     }
     private messageAckLoop() {
         let start = Date.now()
@@ -425,7 +456,7 @@ export class KIMClient {
             }
             setTimeout(loop, 500)
         }
-        setTimeout(loop, 1000)
+        setTimeout(loop, 500)
     }
     private async loadOfflineMessage() {
         log.debug("loadOfflineMessage start")
@@ -453,7 +484,6 @@ export class KIMClient {
             if (!indexes || !indexes.length) {
                 break
             }
-
             messageId = indexes[indexes.length - 1].messageId
             offmessages = offmessages.concat(indexes)
 
@@ -469,6 +499,7 @@ export class KIMClient {
             //     offmessages.push(message)
             // })
         }
+        log.info(`load offline indexes - ${offmessages.map(msg => msg.messageId.toString())}`)
         let om = new OfflineMessages(this, offmessages)
         this.offmessageCallback(om)
     }
