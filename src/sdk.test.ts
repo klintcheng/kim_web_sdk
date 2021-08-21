@@ -1,4 +1,4 @@
-import { Content, KIMClient, KIMEvent, MsgStorage, Message, OfflineMessages, sleep } from "./sdk"
+import { Content, KIMClient, KIMEvent, Store, Message, OfflineMessages, sleep } from "./sdk"
 import log from 'loglevel-es';
 import { doLogin } from "./login";
 import { Status } from "./proto/common";
@@ -40,13 +40,18 @@ test('doLoginfail', async () => {
 })
 
 test('store', async () => {
-    let ok =  MsgStorage.insert({
+    let ok = await Store.insert({
         messageId: Long.fromNumber(1),
         sendTime: Long.fromNumber(1),
     })
     expect(ok).toBeTruthy()
-    let id = MsgStorage.lastId()
-    expect(id.toString()).toEqual("1")
+    let id = await Store.lastId()
+    log.info("id - ", id)
+    expect(id).toEqual(Long.fromNumber(1))
+
+    let msg = await Store.get(Long.fromNumber(1))
+    expect(msg?.messageId).toEqual(Long.fromNumber(1))
+    log.info(msg)
 })
 
 test('clilogin', async () => {
@@ -55,13 +60,15 @@ test('clilogin', async () => {
     let cli = new KIMClient(gatewayURL, { token: tokens[0], tags });
     let { success, err } = await cli.login()
     expect(success).toBeTruthy()
-    let callback = (evt: KIMEvent) => {
+    let callback = jest.fn((evt: KIMEvent) => {
         log.info("--------", evt)
-    };
+    });
     cli.register([KIMEvent.Closed], callback)
     expect(cli.account).toEqual("test1")
     await cli.logout()
-    await sleep(4)
+    await sleep(2)
+    // Closed回调方法必须被调用一次
+    expect(callback).toBeCalledTimes(1)
 })
 
 test('dokickout', async () => {
@@ -90,7 +97,7 @@ test('usertalk', async () => {
     expect(success).toBeTruthy()
 
     let cli2 = new KIMClient(gatewayURL, { token: tokens[1], tags });
-    cli2.onmessage(async (m: Message) => {
+    let onmessage = jest.fn(async (m: Message) => {
         expect(m.sender).toEqual(cli.account)
         expect(m.receiver).toEqual(cli2.account)
         expect(m.body).toEqual("hello")
@@ -98,18 +105,18 @@ test('usertalk', async () => {
 
         await cli.logout()
         await cli2.logout()
-    })
+    });
+
+    cli2.onmessage(onmessage)
     let { success: suc } = await cli2.login()
     expect(suc).toBeTruthy()
     // { type: 1, body: "hello" }
-    let { status, resp, err: er } = await cli.talkToUser(cli2.account, new Content("hello"))
+    let { status, resp } = await cli.talkToUser(cli2.account, new Content("hello"))
     expect(status).toEqual(Status.Success)
-    if (er) {
-        log.error("---", er.message)
-    }
     expect(resp?.messageId.greaterThan(1000)).toBeTruthy()
     expect(resp?.sendTime.greaterThan(1000)).toBeTruthy()
     await sleep(1)
+    expect(onmessage).toBeCalled()
 })
 
 test('offline', async () => {
@@ -133,7 +140,7 @@ test('offline', async () => {
     expect(resp?.sendTime.greaterThan(1000)).toBeTruthy()
 
     let cli2 = new KIMClient(gatewayURL, { token: tokens[1], tags });
-    cli2.onofflinemessage(async (om: OfflineMessages) => {
+    let cb = jest.fn(async (om: OfflineMessages) => {
         let users = om.listUsers()
         log.info("onofflinemessage -- load ", users)
 
@@ -145,7 +152,9 @@ test('offline', async () => {
 
         await cli.logout()
         await cli2.logout()
-    })
+    });
+    cli2.onofflinemessage(cb)
     let { success: suc } = await cli2.login()
     expect(suc).toBeTruthy()
+    expect(cb).toBeCalled()
 })

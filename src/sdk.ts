@@ -6,6 +6,7 @@ import { Flag, Status } from './proto/common';
 import { LoginReq, LoginResp, MessageReq, MessageResp, MessagePush, GroupCreateResp, GroupGetResp, MessageIndexResp, MessageContentResp, ErrorResp, KickoutNotify, MessageAckReq, MessageIndexReq, MessageIndex, MessageContentReq, MessageContent } from './proto/protocol';
 import { doLogin, LoginBody } from './login';
 import Long from 'long';
+import localforage from 'localforage';
 
 const heartbeatInterval = 55 * 1000 // seconds
 const sendTimeout = 5 * 1000 // 10 seconds
@@ -39,7 +40,6 @@ export enum KIMEvent {
     Closed = "Closed",
     Kickout = "Kickout", // 被踢
 }
-
 
 export class Response {
     status: number;
@@ -301,14 +301,16 @@ export class KIMClient {
             }
             let tr = setTimeout(() => {
                 log.debug("oh no,logout is timeout~")
+                this.onclose("logout")
                 resolve()
-            }, 2000)
+            }, 1500)
 
             this.closeCallback = async () => {
                 clearTimeout(tr)
                 await sleep(1)
                 resolve()
             }
+
             this.conn.close()
             log.info("Connection closing...")
         })
@@ -381,7 +383,7 @@ export class KIMClient {
             listener(event)
         }
     }
-    private packetHandler(pkt: LogicPkt) {
+    private async packetHandler(pkt: LogicPkt) {
         log.debug("received packet: ", pkt)
         if (pkt.status >= 400) {
             log.info(`need relogin due to status ${pkt.status}`)
@@ -407,17 +409,19 @@ export class KIMClient {
                 if (pkt.command == Command.ChatGroupTalk) {
                     message.group = pkt.dest
                 }
-                if (!MsgStorage.exist(message.messageId)) {
-                    try {
-                        this.messageCallback(message)
-                    } catch (error) {
-                        log.error(error)
-                    }
-                    MsgStorage.insert(message)
+                if (!await Store.exist(message.messageId)) {
                     // 确保状态处于CONNECTED，才能执行消息ACK
                     if (this.state == State.CONNECTED) {
                         this.lastMessage = message
+
+                        try {
+                            this.messageCallback(message)
+                        } catch (error) {
+                            log.error(error)
+                        }
                     }
+                    // 消息保存到数据库中。
+                    await Store.insert(message)
                 }
                 break;
             case Command.SignIn:
@@ -497,7 +501,7 @@ export class KIMClient {
             return { status: resp.status, indexes: respbody.indexes }
         }
         let offmessages = new Array<MessageIndex>();
-        let messageId = MsgStorage.lastId()
+        let messageId = await Store.lastId()
         while (true) {
             let { status, indexes } = await loadIndex(messageId)
             if (status != Status.Success) {
@@ -515,8 +519,12 @@ export class KIMClient {
     }
     // 表示连接中止
     private onclose(reason: string) {
-        log.info("connection closed due to " + reason)
+        if (this.state == State.CLOSED) {
+            return
+        }
         this.state = State.CLOSED
+
+        log.info("connection closed due to " + reason)
         this.conn = undefined
         this.channelId = ""
         this.account = ""
@@ -567,23 +575,42 @@ export class KIMClient {
     }
 }
 
-export class MsgStorage {
+class MsgStorage {
+    private keymsg(id: Long): string {
+        return `kim_msg_${id.toString()}`
+    }
+    private keylast(): string {
+        return `kim_last`
+    }
     // 记录一条消息
-    static insert(msg: {
-        messageId: Long;
-        sender?: string;
-        group?: string;
-        sendTime: Long;
-    }): boolean {
-        localStorage.setItem(`kim_msg_${msg.messageId.toString()}`, JSON.stringify(msg))
-        localStorage.setItem("kim_last", msg.messageId.toString())
+    async insert(msg: Message): Promise<boolean> {
+        await localforage.setItem(this.keymsg(msg.messageId), msg)
+        await localforage.setItem(this.keylast(), msg.messageId)
         return true
     }
     // 检查消息是否已经保存
-    static exist(id: Long): boolean {
-        return !!localStorage.getItem(`kim_msg_${id.toString()}`)
+    async exist(id: Long): Promise<boolean> {
+        try {
+            let val = await localforage.getItem(this.keymsg(id))
+            return !!val
+        } catch (err) {
+            log.warn(err);
+        }
+        return false;
     }
-    static lastId(): Long {
-        return Long.fromString(localStorage.getItem("kim_last") || "0")
+    async lastId(): Promise<Long> {
+        let id = await localforage.getItem(this.keylast())
+        return <Long>id||Long.ZERO
+    }
+    async get(id: Long): Promise<Message | null> {
+        try {
+            let message = await localforage.getItem(this.keymsg(id))
+            return <Message>message
+        } catch (err) {
+            log.warn(err);
+        }
+        return null
     }
 }
+
+export let Store = new MsgStorage();

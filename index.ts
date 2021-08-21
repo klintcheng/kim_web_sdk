@@ -1,4 +1,4 @@
-import { KIMClient, KIMEvent } from "./src/sdk";
+import { KIMClient, KIMEvent, Message, OfflineMessages, sleep } from "./src/sdk";
 import log from 'loglevel-es';
 import 'mock-local-storage'
 
@@ -15,15 +15,46 @@ log.setLevel("DEBUG")
 
 let main = async () => {
     const tags = ["web"]
+    // 初始化
     let cli = new KIMClient(gatewayURL, { token: tokens[0], tags });
-    let { success, err } = await cli.login()
-    log.info(success)
-    let callback = (evt: KIMEvent) => {
-        log.info("--------", evt)
+    let eventcallback = (evt: KIMEvent) => {
+        log.info(`event ${evt}`)
     };
-    cli.register([KIMEvent.Closed], callback)
+    let messagecallback = (m: Message) => {
+        log.info(m)
+    }
+    let offmessagecallback = (om: OfflineMessages) => {
+        // 离线的用户列举
+        let users = om.listUsers()
+        if (users.length > 0) {
+            log.info(`offline messages from users of ${users}`)
+            // lazy load messages
+            let messages = om.loadUser(users[0], 1)
+            log.info(messages)
+        }
+        // 离线的群列表
+        let groups = om.listGroups()
+        if(groups.length > 0) {
+            log.info(`offline messages from groups of ${groups}`)
+        }
+    }
+    // 2.注册事件
+    let evts = [KIMEvent.Closed, KIMEvent.Reconnecting, KIMEvent.Reconnected, KIMEvent.Kickout]
+    cli.register(evts, eventcallback)
+    cli.onmessage(messagecallback)
+    cli.onofflinemessage(offmessagecallback)
+    // 3. 登录
+    let { success, err } = await cli.login()
+    if (!success) {
+        log.error(err)
+        return
+    }
+
+    // do something
+    await sleep(10)
+
+    // 4. 登出
     await cli.logout()
-    
 }
 
 main()
