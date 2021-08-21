@@ -487,7 +487,6 @@ export class KIMClient {
     private async loadOfflineMessage() {
         log.debug("loadOfflineMessage start")
         // 1. 加载消息索引
-
         let loadIndex = async (messageId: Long = Long.ZERO): Promise<{ status: number, indexes?: MessageIndex[] }> => {
             let req = MessageIndexReq.encode({ messageId })
             let pkt = LogicPkt.build(Command.OfflineIndex, "", req.finish())

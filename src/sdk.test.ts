@@ -116,7 +116,7 @@ test('usertalk', async () => {
     expect(resp?.messageId.greaterThan(1000)).toBeTruthy()
     expect(resp?.sendTime.greaterThan(1000)).toBeTruthy()
     await sleep(1)
-    expect(onmessage).toBeCalled()
+    expect(onmessage).toBeCalledTimes(1)
 })
 
 test('offline', async () => {
@@ -145,16 +145,20 @@ test('offline', async () => {
         log.info("onofflinemessage -- load ", users)
 
         expect(users.length).toBeGreaterThanOrEqual(1)
-        // lazy load messages
+        log.info("--- lazy load messages")
         let msgs = await om.loadUser(users[0], 1)
         expect(msgs.length).toBeGreaterThanOrEqual(1)
         expect(msgs[0].body).toEqual("hello")
-
+        // load again
+        log.info("--- load again")
+        msgs = await om.loadUser(users[0], 1)
+        expect(msgs[0].body).toEqual("hello")
         await cli.logout()
         await cli2.logout()
     });
     cli2.onofflinemessage(cb)
     let { success: suc } = await cli2.login()
     expect(suc).toBeTruthy()
-    expect(cb).toBeCalled()
+    expect(cb).toBeCalledTimes(1)
+    await sleep(3)
 })

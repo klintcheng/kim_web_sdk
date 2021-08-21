@@ -24,11 +24,11 @@ let main = async () => {
         log.info(m)
     }
     let offmessagecallback = (om: OfflineMessages) => {
-        // 离线的用户列举
+        // 离线时的发送方用户列表
         let users = om.listUsers()
         if (users.length > 0) {
             log.info(`offline messages from users of ${users}`)
-            // lazy load messages
+            // lazy load the first page messages from 'users[0]'
             let messages = om.loadUser(users[0], 1)
             log.info(messages)
         }
