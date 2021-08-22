@@ -501,6 +501,8 @@ export class KIMClient {
             if (!!msg && Date.now() - start > 3000) {
                 let overflow = this.unack > 10
                 this.unack = 0 // reset unack before ack
+                this.lastMessage = undefined //reset last message
+                
                 if (!overflow && Date.now() - msg.arrivalTime < delay) {
                     await sleep(delay, TimeUnit.Millisecond)
                 }
