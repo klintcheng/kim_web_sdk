@@ -11,7 +11,12 @@ import localforage from 'localforage';
 const heartbeatInterval = 55 * 1000 // seconds
 const sendTimeout = 5 * 1000 // 10 seconds
 
-export let sleep = async (second: number, Unit: number = 1000): Promise<void> => {
+enum TimeUnit {
+    Second = 1000,
+    Millisecond = 1,
+}
+
+export let sleep = async (second: number, Unit: TimeUnit = TimeUnit.Second): Promise<void> => {
     return new Promise((resolve, _) => {
         setTimeout(() => {
             resolve()
@@ -472,16 +477,18 @@ export class KIMClient {
     }
     private messageAckLoop() {
         let start = Date.now()
+        const delay = 500 //ms
         let loop = async () => {
             if (this.state != State.CONNECTED) {
                 log.debug("messageAckLoop exited")
                 return
             }
             let msg = this.lastMessage // lock this message
+
             if (!!msg && Date.now() - start > 3000) {
-                if (this.unacked < 10 && Date.now() - msg.arrivalTime < 200) {
+                if (this.unacked < 10 && Date.now() - msg.arrivalTime < delay) {
                     this.unacked = 0 // reset unacked before sleep
-                    await sleep(200, 1)
+                    await sleep(delay, TimeUnit.Millisecond)
                 } else {
                     this.unacked = 0 // reset unacked before ack
                 }
