@@ -40,10 +40,7 @@ test('doLoginfail', async () => {
 })
 
 test('store', async () => {
-    let ok = await Store.insert({
-        messageId: Long.fromNumber(1),
-        sendTime: Long.fromNumber(1),
-    })
+    let ok = await Store.insert(new Message(Long.fromNumber(1), Long.fromNumber(1)))
     expect(ok).toBeTruthy()
     let id = await Store.lastId()
     log.info("id - ", id)

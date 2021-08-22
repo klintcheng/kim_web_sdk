@@ -11,11 +11,11 @@ import localforage from 'localforage';
 const heartbeatInterval = 55 * 1000 // seconds
 const sendTimeout = 5 * 1000 // 10 seconds
 
-export let sleep = async (second: number): Promise<void> => {
+export let sleep = async (second: number, Unit: number = 1000): Promise<void> => {
     return new Promise((resolve, _) => {
         setTimeout(() => {
             resolve()
-        }, second * 1000)
+        }, second * Unit)
     })
 }
 
@@ -42,8 +42,8 @@ export enum KIMEvent {
 }
 
 export class Response {
-    status: number;
-    dest?: string;
+    status: number
+    dest?: string
     payload: Uint8Array
     constructor(status: number, dest?: string, payload: Uint8Array = new Uint8Array()) {
         this.status = status;
@@ -181,9 +181,11 @@ export class Message {
     receiver?: string;
     group?: string;
     sendTime: Long;
+    arrivalTime: number;
     constructor(messageId: Long, sendTime: Long) {
         this.messageId = messageId
         this.sendTime = sendTime
+        this.arrivalTime = Date.now()
     }
 }
 
@@ -207,6 +209,7 @@ export class KIMClient {
     private conn?: w3cwebsocket
     private lastRead: number
     private lastMessage?: Message
+    private unacked: number = 0
     private listeners = new Map<string, (e: KIMEvent) => void>()
     private messageCallback: (m: Message) => void
     private offmessageCallback: (m: OfflineMessages) => void
@@ -413,7 +416,7 @@ export class KIMClient {
                     // 确保状态处于CONNECTED，才能执行消息ACK
                     if (this.state == State.CONNECTED) {
                         this.lastMessage = message
-
+                        this.unacked++
                         try {
                             this.messageCallback(message)
                         } catch (error) {
@@ -469,13 +472,20 @@ export class KIMClient {
     }
     private messageAckLoop() {
         let start = Date.now()
-        let loop = () => {
+        let loop = async () => {
             if (this.state != State.CONNECTED) {
                 log.debug("messageAckLoop exited")
                 return
             }
-            if (this.lastMessage && Date.now() - start > 3000) {
-                let req = MessageAckReq.encode({ messageId: this.lastMessage.messageId })
+            let msg = this.lastMessage // lock this message
+            if (!!msg && Date.now() - start > 3000) {
+                if (this.unacked < 10 && Date.now() - msg.arrivalTime < 200) {
+                    this.unacked = 0 // reset unacked before sleep
+                    await sleep(200, 1)
+                } else {
+                    this.unacked = 0 // reset unacked before ack
+                }
+                let req = MessageAckReq.encode({ messageId: msg.messageId })
                 let pkt = LogicPkt.build(Command.ChatTalkAck, "", req.finish())
                 start = Date.now()
                 this.send(pkt.bytes())
@@ -599,7 +609,7 @@ class MsgStorage {
     }
     async lastId(): Promise<Long> {
         let id = await localforage.getItem(this.keylast())
-        return <Long>id||Long.ZERO
+        return <Long>id || Long.ZERO
     }
     async get(id: Long): Promise<Message | null> {
         try {
