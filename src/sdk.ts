@@ -135,6 +135,20 @@ export class OfflineMessages {
         let msgs = await this.lazyLoad(messages, page);
         return msgs
     }
+    getGroupMessagesCount(group: string): number {
+        let messages = this.groupmessages.get(group)
+        if (!messages) {
+            return 0
+        }
+        return messages.length
+    }
+    getUserMessagesCount(account: string): number {
+        let messages = this.usermessages.get(account)
+        if (!messages) {
+            return 0
+        }
+        return messages.length
+    }
     async lazyLoad(messages: Array<Message>, page: number): Promise<Array<Message>> {
         let i = (page - 1) * pageCount
         let msgs = messages.slice(i, i + pageCount)
@@ -214,7 +228,7 @@ export class KIMClient {
     private conn?: w3cwebsocket
     private lastRead: number
     private lastMessage?: Message
-    private unacked: number = 0
+    private unack: number = 0
     private listeners = new Map<string, (e: KIMEvent) => void>()
     private messageCallback: (m: Message) => void
     private offmessageCallback: (m: OfflineMessages) => void
@@ -421,7 +435,7 @@ export class KIMClient {
                     // 确保状态处于CONNECTED，才能执行消息ACK
                     if (this.state == State.CONNECTED) {
                         this.lastMessage = message
-                        this.unacked++
+                        this.unack++
                         try {
                             this.messageCallback(message)
                         } catch (error) {
@@ -485,8 +499,8 @@ export class KIMClient {
             }
             let msg = this.lastMessage // lock this message
             if (!!msg && Date.now() - start > 3000) {
-                let overflow = this.unacked > 10
-                this.unacked = 0 // reset unacked before ack
+                let overflow = this.unack > 10
+                this.unack = 0 // reset unack before ack
                 if (!overflow && Date.now() - msg.arrivalTime < delay) {
                     await sleep(delay, TimeUnit.Millisecond)
                 }
@@ -592,11 +606,17 @@ export class KIMClient {
 }
 
 class MsgStorage {
+    constructor() {
+        localforage.config({
+            name: 'kim',
+            storeName: "kim",
+        });
+    }
     private keymsg(id: Long): string {
-        return `kim_msg_${id.toString()}`
+        return `msg_${id.toString()}`
     }
     private keylast(): string {
-        return `kim_last`
+        return `last_id`
     }
     // 记录一条消息
     async insert(msg: Message): Promise<boolean> {

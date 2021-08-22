@@ -5,7 +5,7 @@ import { Status } from "./proto/common";
 import { MessageType } from "./packet";
 import Long from 'long';
 import 'jest-localstorage-mock';
-log.setLevel("debug")
+log.setLevel("info")
 jest.setTimeout(30 * 1000)
 
 // https://jestjs.io/docs/cli
@@ -42,13 +42,15 @@ test('doLoginfail', async () => {
 test('store', async () => {
     let ok = await Store.insert(new Message(Long.fromNumber(1), Long.fromNumber(1)))
     expect(ok).toBeTruthy()
-    let id = await Store.lastId()
-    log.info("id - ", id)
-    expect(id).toEqual(Long.fromNumber(1))
-
+    
     let msg = await Store.get(Long.fromNumber(1))
     expect(msg?.messageId).toEqual(Long.fromNumber(1))
     log.info(msg)
+    await Store.setAck(Long.fromNumber(1))
+
+    let id = await Store.lastId()
+    log.info("id - ", id)
+    expect(id).toEqual(Long.fromNumber(1))
 })
 
 test('clilogin', async () => {
