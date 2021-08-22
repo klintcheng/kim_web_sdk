@@ -494,6 +494,8 @@ export class KIMClient {
                 let pkt = LogicPkt.build(Command.ChatTalkAck, "", req.finish())
                 start = Date.now()
                 this.send(pkt.bytes())
+                // 修改本地存储中最后一条ACK消息记录
+                await Store.setAck(msg.messageId)
             }
             setTimeout(loop, 500)
         }
@@ -599,7 +601,6 @@ class MsgStorage {
     // 记录一条消息
     async insert(msg: Message): Promise<boolean> {
         await localforage.setItem(this.keymsg(msg.messageId), msg)
-        await localforage.setItem(this.keylast(), msg.messageId)
         return true
     }
     // 检查消息是否已经保存
@@ -612,10 +613,6 @@ class MsgStorage {
         }
         return false;
     }
-    async lastId(): Promise<Long> {
-        let id = await localforage.getItem(this.keylast())
-        return <Long>id || Long.ZERO
-    }
     async get(id: Long): Promise<Message | null> {
         try {
             let message = await localforage.getItem(this.keymsg(id))
@@ -624,6 +621,14 @@ class MsgStorage {
             log.warn(err);
         }
         return null
+    }
+    async setAck(id: Long): Promise<boolean> {
+        await localforage.setItem(this.keylast(), id)
+        return true
+    }
+    async lastId(): Promise<Long> {
+        let id = await localforage.getItem(this.keylast())
+        return <Long>id || Long.ZERO
     }
 }
 
