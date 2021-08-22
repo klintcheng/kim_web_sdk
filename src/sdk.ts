@@ -484,13 +484,11 @@ export class KIMClient {
                 return
             }
             let msg = this.lastMessage // lock this message
-
             if (!!msg && Date.now() - start > 3000) {
-                if (this.unacked < 10 && Date.now() - msg.arrivalTime < delay) {
-                    this.unacked = 0 // reset unacked before sleep
+                let overflow = this.unacked > 10
+                this.unacked = 0 // reset unacked before ack
+                if (!overflow && Date.now() - msg.arrivalTime < delay) {
                     await sleep(delay, TimeUnit.Millisecond)
-                } else {
-                    this.unacked = 0 // reset unacked before ack
                 }
                 let req = MessageAckReq.encode({ messageId: msg.messageId })
                 let pkt = LogicPkt.build(Command.ChatTalkAck, "", req.finish())
