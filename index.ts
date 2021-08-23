@@ -1,6 +1,7 @@
-import { KIMClient, KIMEvent, Message, OfflineMessages, sleep } from "./src/sdk";
+import { KIMClient, KIMEvent, Message, OfflineMessages, Content, sleep } from "./src/sdk";
 import log from 'loglevel-es';
 import 'mock-local-storage'
+import { Status } from "./src/proto/common";
 
 //三个测试账号 test1 ,test2 ,test3
 const tokens = [
@@ -34,7 +35,7 @@ let main = async () => {
         }
         // 离线的群列表
         let groups = om.listGroups()
-        if(groups.length > 0) {
+        if (groups.length > 0) {
             log.info(`offline messages from groups of ${groups}`)
         }
     }
@@ -50,10 +51,17 @@ let main = async () => {
         return
     }
 
-    // do something
+    // 4. 发送消息
+    let { status, resp, err: err2 } = await cli.talkToUser("test2", new Content("hello"))
+    if (status != Status.Success) {
+        log.error(err)
+        return
+    }
+    log.info(`resp - ${resp?.messageId} ${resp?.sendTime.toString()}`)
+
     await sleep(10)
 
-    // 4. 登出
+    // 5. 登出
     await cli.logout()
 }
 
