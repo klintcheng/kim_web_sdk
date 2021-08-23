@@ -101,6 +101,9 @@ export class OfflineMessages {
             }
         }
     }
+    /**
+     * 获取离线消息群列表
+     */
     listGroups(): Array<string> {
         let arr = new Array<string>()
         this.groupmessages.forEach((_, key) => {
@@ -108,6 +111,9 @@ export class OfflineMessages {
         })
         return arr
     }
+    /**
+     * 获取离线消息用户列表
+     */
     listUsers(): Array<string> {
         let arr = new Array<string>()
         this.usermessages.forEach((_, key) => {
@@ -135,6 +141,10 @@ export class OfflineMessages {
         let msgs = await this.lazyLoad(messages, page);
         return msgs
     }
+    /**
+     * 获取指定群的离线消息数据
+     * @param group 群ID
+     */
     getGroupMessagesCount(group: string): number {
         let messages = this.groupmessages.get(group)
         if (!messages) {
@@ -142,6 +152,10 @@ export class OfflineMessages {
         }
         return messages.length
     }
+    /**
+     * 获取指定用户的离线消息数量
+     * @param account 用户
+     */
     getUserMessagesCount(account: string): number {
         let messages = this.usermessages.get(account)
         if (!messages) {
@@ -149,7 +163,7 @@ export class OfflineMessages {
         }
         return messages.length
     }
-    async lazyLoad(messages: Array<Message>, page: number): Promise<Array<Message>> {
+    private async lazyLoad(messages: Array<Message>, page: number): Promise<Array<Message>> {
         let i = (page - 1) * pageCount
         let msgs = messages.slice(i, i + pageCount)
         log.debug(msgs)
@@ -176,7 +190,7 @@ export class OfflineMessages {
         }
         return msgs
     }
-    async loadcontent(messageIds: Long[]): Promise<{ status: number, contents: MessageContent[] }> {
+    private async loadcontent(messageIds: Long[]): Promise<{ status: number, contents: MessageContent[] }> {
         let req = MessageContentReq.encode({ messageIds })
         let pkt = LogicPkt.build(Command.OfflineContent, "", req.finish())
         let resp = await this.cli.request(pkt)
@@ -498,13 +512,14 @@ export class KIMClient {
                 return
             }
             let msg = this.lastMessage // lock this message
-            if (!!msg && Date.now() - start > 3000) {
+            if (!!msg && (Date.now() - start > 3000)) {
                 let overflow = this.unack > 10
                 this.unack = 0 // reset unack before ack
                 this.lastMessage = undefined //reset last message
-                
-                if (!overflow && Date.now() - msg.arrivalTime < delay) {
-                    await sleep(delay, TimeUnit.Millisecond)
+
+                let diff = Date.now() - msg.arrivalTime
+                if (!overflow && diff < delay) {
+                    await sleep(delay - diff, TimeUnit.Millisecond)
                 }
                 let req = MessageAckReq.encode({ messageId: msg.messageId })
                 let pkt = LogicPkt.build(Command.ChatTalkAck, "", req.finish())
