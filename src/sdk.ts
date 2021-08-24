@@ -3,7 +3,7 @@ import { Buffer } from 'buffer';
 import log from 'loglevel-es';
 import { Command, LogicPkt, MagicBasicPktInt, MessageType, Ping } from './packet';
 import { Flag, Status } from './proto/common';
-import { LoginReq, LoginResp, MessageReq, MessageResp, MessagePush, GroupCreateResp, GroupGetResp, MessageIndexResp, MessageContentResp, ErrorResp, KickoutNotify, MessageAckReq, MessageIndexReq, MessageIndex, MessageContentReq, MessageContent } from './proto/protocol';
+import { LoginReq, LoginResp, MessageReq, MessageResp, MessagePush, GroupCreateResp, GroupGetResp, MessageIndexResp, MessageContentResp, ErrorResp, KickoutNotify, MessageAckReq, MessageIndexReq, MessageIndex, MessageContentReq, MessageContent, GroupCreateReq, GroupJoinReq, GroupQuitReq, GroupGetReq } from './proto/protocol';
 import { doLogin, LoginBody } from './login';
 import Long from 'long';
 import localforage from 'localforage';
@@ -368,6 +368,56 @@ export class KIMClient {
      */
     async talkToGroup(dest: string, req: Content, retry: number = 3): Promise<{ status: number, resp?: MessageResp, err?: ErrorResp }> {
         return this.talk(Command.ChatGroupTalk, dest, MessageReq.fromJSON(req), retry)
+    }
+    async createGroup(req: {
+        name: string;
+        avatar?: string;
+        introduction?: string;
+        members: string[];
+    }): Promise<{ status: number, resp?: GroupCreateResp, err?: ErrorResp }> {
+        let req2 = GroupCreateReq.fromJSON(req)
+        req2.owner = this.account
+        if (!req2.members.find(v => v == this.account)) {
+            req2.members.push(this.account)
+        }
+        let pbreq = GroupCreateReq.encode(req2).finish()
+        let pkt = LogicPkt.build(Command.GroupCreate, "", pbreq)
+        let resp = await this.request(pkt)
+        if (resp.status != Status.Success) {
+            let err = ErrorResp.decode(resp.payload)
+            return { status: resp.status, err: err }
+        }
+        return { status: Status.Success, resp: GroupCreateResp.decode(resp.payload) }
+    }
+    async joinGroup(req: GroupJoinReq): Promise<{ status: number, err?: ErrorResp }> {
+        let pbreq = GroupJoinReq.encode(req).finish()
+        let pkt = LogicPkt.build(Command.GroupJoin, "", pbreq)
+        let resp = await this.request(pkt)
+        if (resp.status != Status.Success) {
+            let err = ErrorResp.decode(resp.payload)
+            return { status: resp.status, err: err }
+        }
+        return { status: Status.Success }
+    }
+    async quitGroup(req: GroupQuitReq): Promise<{ status: number, err?: ErrorResp }> {
+        let pbreq = GroupQuitReq.encode(req).finish()
+        let pkt = LogicPkt.build(Command.GroupQuit, "", pbreq)
+        let resp = await this.request(pkt)
+        if (resp.status != Status.Success) {
+            let err = ErrorResp.decode(resp.payload)
+            return { status: resp.status, err: err }
+        }
+        return { status: Status.Success }
+    }
+    async GetGroup(req: GroupGetReq): Promise<{ status: number, resp?: GroupGetResp, err?: ErrorResp }> {
+        let pbreq = GroupGetReq.encode(req).finish()
+        let pkt = LogicPkt.build(Command.GroupDetail, "", pbreq)
+        let resp = await this.request(pkt)
+        if (resp.status != Status.Success) {
+            let err = ErrorResp.decode(resp.payload)
+            return { status: resp.status, err: err }
+        }
+        return { status: Status.Success, resp: GroupGetResp.decode(resp.payload) }
     }
     private async talk(command: string, dest: string, req: MessageReq, retry: number): Promise<{ status: number, resp?: MessageResp, err?: ErrorResp }> {
         let pbreq = MessageReq.encode(req).finish()

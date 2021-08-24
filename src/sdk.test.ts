@@ -42,7 +42,7 @@ test('doLoginfail', async () => {
 test('store', async () => {
     let ok = await Store.insert(new Message(Long.fromNumber(1), Long.fromNumber(1)))
     expect(ok).toBeTruthy()
-    
+
     let msg = await Store.get(Long.fromNumber(1))
     expect(msg?.messageId).toEqual(Long.fromNumber(1))
     log.info(msg)
@@ -160,4 +160,44 @@ test('offline', async () => {
     expect(suc).toBeTruthy()
     expect(cb).toBeCalledTimes(1)
     await sleep(3)
+})
+
+test('group', async () => {
+    // test1
+    const tags = ["web"]
+    let cli = new KIMClient(gatewayURL, { token: tokens[0], tags });
+    let { success, err } = await cli.login()
+    expect(err).toBeUndefined()
+    expect(success).toBeTruthy()
+
+    let resp = await cli.createGroup({
+        name: "group_sdk",
+        avatar: "",
+        introduction: "test",
+        members: ["test2"],
+    })
+    expect(resp.status).toEqual(Status.Success)
+    expect(resp.resp?.groupId).not.toBeNull()
+
+    let groupId = resp.resp?.groupId||""
+    let resp2 = await cli.GetGroup({ groupId })
+    expect(resp2.status).toEqual(Status.Success)
+    expect(resp2.resp?.members.length).toEqual(2)
+
+    let resp3 = await cli.joinGroup({ groupId, account: "test3" })
+    expect(resp3.status).toEqual(Status.Success)
+
+    let resp4 = await cli.GetGroup({ groupId })
+    expect(resp4.status).toEqual(Status.Success)
+    expect(resp4.resp?.members.length).toEqual(3)
+    log.info(resp4)
+
+    let resp5 = await cli.quitGroup({ groupId, account: "test3" })
+    expect(resp5.status).toEqual(Status.Success)
+
+    let resp6 = await cli.GetGroup({ groupId })
+    expect(resp6.status).toEqual(Status.Success)
+    expect(resp6.resp?.members.length).toEqual(2)
+
+    await cli.logout()
 })
