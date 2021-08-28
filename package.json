@@ -1,6 +1,6 @@
 {
   "name": "imsdk",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "king im sdk",
   "main": "index.ts",
   "scripts": {
