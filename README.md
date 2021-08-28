@@ -2,13 +2,17 @@
 
 本项目是King IM CLoud的web版本SDK。
 
+## 安装
+
+> npm i kingim
+
 ## Quick Start
 
-在介绍本章节的内容之前，我们从三方开发的角度，来了解下SDK被调用的流程，这有助于我们构建出一个完整的逻辑图谱。首先，我们再次回顾下客户端的生命周期状态图，**在SDK端所有逻辑都离不开这个状态图**，非常重要。
+我们再次回顾下客户端的生命周期状态图，**在SDK端所有逻辑都离不开这个状态图**:
 
 ![sdk_status.png](https://p9-juejin.byteimg.com/tos-cn-i-k3u1fbpfcp/ec4ee25597564dd2b17c14dd61e60ef2~tplv-k3u1fbpfcp-watermark.image)
 
-那么，三方应用集成`KIM SDK`之后，一个简单的调用流程如下：
+一个简单的调用流程如下：
 
 ```ts
 const tags = ["web"]
