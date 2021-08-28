@@ -1,15 +1,16 @@
 {
-  "name": "imsdk",
+  "name": "kim",
   "version": "1.0.1",
   "description": "king im sdk",
   "main": "index.ts",
   "scripts": {
     "test": "jest --verbose --force-exit ",
-    "run": "ts-node index.ts"
+    "run": "ts-node index.ts",
+    "build": "tsc"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/klintcheng/chatdemo.git"
+    "url": "git+https://github.com/klintcheng/kim_web_sdk.git"
   },
   "keywords": [
     "im",
@@ -18,9 +19,9 @@
   "author": "klintcheng",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/klintcheng/chatdemo/issues"
+    "url": "https://github.com/klintcheng/kim_web_sdk/issues"
   },
-  "homepage": "https://github.com/klintcheng/chatdemo#readme",
+  "homepage": "https://github.com/klintcheng/kim_web_sdk#readme",
   "dependencies": {
     "@types/websocket": "^1.0.2",
     "buffer": "^6.0.3",
