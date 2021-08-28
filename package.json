@@ -1,6 +1,6 @@
 {
   "name": "kim",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "king im sdk",
   "main": "index.ts",
   "scripts": {
