@@ -2,6 +2,15 @@
 import { Header, Flag, Status } from './proto/common';
 import log from 'loglevel-es';
 
+import * as buffer from "buffer";
+
+if (typeof (window as any).global === "undefined") {
+    (window as any).global = window;
+}
+if (typeof (window as any).Buffer === "undefined") {
+    (window as any).Buffer = buffer.Buffer;
+}
+
 export class Seq {
     static num: number = 0
     static Next() {
